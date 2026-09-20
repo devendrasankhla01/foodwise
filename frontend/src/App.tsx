@@ -5,7 +5,6 @@ import {Leaf,LayoutDashboard,ChartNoAxesCombined,Database,Utensils,Package,Therm
 import {AreaChart,Area,CartesianGrid,XAxis,YAxis,Tooltip,ResponsiveContainer,BarChart,Bar,Legend} from 'recharts';
 import {api,post,patch,download} from './api';
 import {Button,Badge,Choice,Empty,Loading,Modal,FormModal,Table,Panel,number,time,day,localDate,type DataRow,type Field} from './components';
-import './styles.css';
 const queryClient=new QueryClient({defaultOptions:{queries:{retry:1,staleTime:10000}}});
 const Auth=createContext<{user:DataRow|null;setUser:(u:DataRow|null)=>void}>({user:null,setUser:()=>{}});
 const Workspace=createContext<{data:DataRow;refresh:()=>Promise<void>;message:(s:string)=>void}>({data:{},refresh:async()=>{},message:()=>{}});
