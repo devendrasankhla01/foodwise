@@ -1,0 +1,14 @@
+FOODWISE — START HERE
+
+1. Extract the entire foodwise folder.
+2. Open README.md for Windows / macOS / Linux setup.
+3. Run the setup commands in that order. Do not open frontend/index.html directly.
+4. After npm run dev, open http://localhost:4173.
+5. Use the demo role buttons or the emails in README.md.
+
+Common DEMO-ONLY password: FoodWise@2026
+
+MongoDB Atlas is optional for a single-process local demo. For Render hosting,
+connect Atlas using README.md and docs/DEPLOYMENT.md.
+
+The website has not been deployed to your Vercel or Render accounts.

@@ -1,0 +1,11 @@
+import {existsSync,writeFileSync,readFileSync} from 'node:fs';
+import {randomBytes} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
+import path from 'node:path';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const backend=path.join(root,'backend/.env');const ai=path.join(root,'ai-service/.env');
+const existing=existsSync(backend)?readFileSync(backend,'utf8').match(/^AI_SERVICE_TOKEN=(.+)$/m)?.[1]:undefined;
+const token=existing||randomBytes(32).toString('hex');
+if(!existsSync(backend))writeFileSync(backend,`PORT=8000\nDEMO_MODE=true\nMONGODB_URI=\nJWT_SECRET=${randomBytes(48).toString('hex')}\nFRONTEND_URL=http://localhost:4173,http://localhost:5173\nAI_SERVICE_URL=http://127.0.0.1:8001\nAI_SERVICE_TOKEN=${token}\nWHATSAPP_ENABLED=false\n`,{mode:0o600});
+if(!existsSync(ai))writeFileSync(ai,`AI_SERVICE_TOKEN=${token}\nCV_MODEL_PATH=models/squeezenet.onnx\n`,{mode:0o600});
+console.log('Local environment files prepared. Existing files were preserved. No secrets printed.');

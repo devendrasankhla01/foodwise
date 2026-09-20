@@ -1,0 +1,3 @@
+import {config} from '../config.js';
+import {fail} from './domain.js';
+export async function aiCall(path:string,body:unknown){try{const response=await fetch(config.ai+path,{method:'POST',headers:{'Content-Type':'application/json','X-Service-Token':config.aiToken},body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});const result=await response.json() as Record<string,unknown>;if(!response.ok)fail(typeof result.detail==='string'?result.detail:'AI service could not process this request.',response.status);return result;}catch(e){if((e as {status?:number}).status)throw e;fail('AI service is temporarily unavailable. Other kitchen operations remain available.',503);}}

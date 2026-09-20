@@ -1,0 +1,10 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import {ZodError} from 'zod';
+import {config} from './config.js';
+import {initStore,databaseStatus} from './repositories/store.js';
+import api from './routes/api.js';
+const app=express();app.disable('x-powered-by');app.set('trust proxy',1);app.use(helmet());app.use(cors({origin(origin,cb){cb(null,!origin||config.origins.includes(origin));}}));app.use(express.json({limit:'1mb'}));app.use('/api/auth/login',rateLimit({windowMs:15*60000,limit:100,standardHeaders:'draft-7',legacyHeaders:false}));app.use('/api/surplus',rateLimit({windowMs:60000,limit:60,standardHeaders:'draft-7',legacyHeaders:false}));app.get('/health',(_req,res)=>res.json({status:'ok',version:'1.0.0',database:databaseStatus(),demo:config.demo}));app.use('/api',api);app.use((_req,res)=>res.status(404).json({error:'Endpoint not found'}));app.use((err:Error&{status?:number;code?:string},_req:express.Request,res:express.Response,_next:express.NextFunction)=>{if(err instanceof ZodError)return res.status(400).json({error:err.errors.map(e=>`${e.path.join('.')}: ${e.message}`).join('; ')});const status=err.code==='LIMIT_FILE_SIZE'?413:err.status||500;if(status===500)console.error(JSON.stringify({level:'error',event:'request_failure',name:err.name}));res.status(status).json({error:status===500?'Something went wrong. Please retry.':err.message});});
+initStore().then(()=>app.listen(config.port,'0.0.0.0',()=>console.info(JSON.stringify({service:'foodwise-api',port:config.port,database:databaseStatus()})))).catch(()=>{console.error('Database initialization failed. Check MONGODB_URI, credentials and network access.');process.exit(1);});

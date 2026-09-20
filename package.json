@@ -1,0 +1,11 @@
+{
+  "name": "foodwise",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "install:all": "npm --prefix frontend ci && npm --prefix backend ci",
+    "build": "npm --prefix frontend run build && npm --prefix backend run build",
+    "test": "npm --prefix backend test",
+    "dev": "node scripts/dev.mjs"
+  }
+}
