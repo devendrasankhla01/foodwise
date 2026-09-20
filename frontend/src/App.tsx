@@ -6,7 +6,6 @@ import {AreaChart,Area,CartesianGrid,XAxis,YAxis,Tooltip,ResponsiveContainer,Bar
 import {api,post,patch,download} from './api';
 import {Button,Badge,Choice,Empty,Loading,Modal,FormModal,Table,Panel,number,time,day,localDate,type DataRow,type Field} from './components';
 import './styles.css';
-import './login-theme.css';
 const queryClient=new QueryClient({defaultOptions:{queries:{retry:1,staleTime:10000}}});
 const Auth=createContext<{user:DataRow|null;setUser:(u:DataRow|null)=>void}>({user:null,setUser:()=>{}});
 const Workspace=createContext<{data:DataRow;refresh:()=>Promise<void>;message:(s:string)=>void}>({data:{},refresh:async()=>{},message:()=>{}});
@@ -14,129 +13,7 @@ const roleName:Record<string,string>={INSTITUTION:'Institution',RECIPIENT:'Recip
 const navs:Record<string,[string,string,React.ElementType][]>={INSTITUTION:[['/','Overview',LayoutDashboard],['/forecast','Demand forecast',ChartNoAxesCombined],['/pos','POS data',Database],['/production','Production planning',Utensils],['/inventory','Inventory',Package],['/sensors','IoT monitor',Thermometer],['/surplus','Surplus food',HeartHandshake],['/redistribution','Redistribution',Truck],['/after-hours','After-hours network',Moon],['/recovery','Recovery',Recycle],['/processing','Processing insights',Factory],['/analytics','Analytics',ChartPie],['/reports','ESG reports',FileText]],RECIPIENT:[['/','Overview',LayoutDashboard],['/requirements','Requirements',Settings],['/offers','Food offers',HeartHandshake],['/requests','Active requests',Package],['/deliveries','Deliveries',Truck],['/history','Received history',History],['/analytics','Impact',ChartPie]],LOGISTICS:[['/','Overview',LayoutDashboard],['/deliveries','Delivery requests',Truck],['/history','Delivery history',History],['/analytics','Impact',ChartPie]],ADMIN:[['/','Network overview',LayoutDashboard],['/institutions','Institutions',Utensils],['/recipients','Recipients',Users],['/logistics','Logistics partners',Truck],['/redistribution','Redistributions',HeartHandshake],['/after-hours','After-hours network',Moon],['/recovery','Recovery',Recycle],['/analytics','Network analytics',ChartPie],['/reports','ESG reports',FileText],['/status','Integration status',Activity],['/audit','Audit trail',History]]};
 function Brand(){return <div className="brand"><span className="brand-icon"><Leaf size={23} strokeWidth={1.7}/></span><span>foodwise<span className="brand-period">.</span></span></div>}
 function App(){const [user,setUser]=useState<DataRow|null>(null);const [init,setInit]=useState(true);useEffect(()=>{if(sessionStorage.getItem('foodwise-token'))api('/auth/me').then(setUser).catch(()=>sessionStorage.removeItem('foodwise-token')).finally(()=>setInit(false));else setInit(false);const expire=()=>setUser(null);window.addEventListener('session-expired',expire);return()=>window.removeEventListener('session-expired',expire)},[]);return <Auth.Provider value={{user,setUser}}>{init?<Loading/>:user?<Shell/>:<Login/>}</Auth.Provider>}
-function Login() {
-  const {setUser} = useContext(Auth);
-  const nav = useNavigate();
-  const [selected, setSelected] = useState('Hotel');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [visible, setVisible] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [help, setHelp] = useState(false);
-  const settings = useQuery({queryKey:['auth-config'], queryFn:()=>api('/auth/config')});
-  const roles = [
-    {name:'Hotel', icon:Utensils, text:'Manage surplus & meals', role:'INSTITUTION', demo:'institution'},
-    {name:'Factory', icon:Factory, text:'Production & inventory', role:'INSTITUTION', demo:'institution'},
-    {name:'NGO', icon:HeartHandshake, text:'Receive & distribute', role:'RECIPIENT', demo:'recipient'},
-    {name:'Admin', icon:ShieldCheck, text:'Platform operations', role:'ADMIN', demo:'admin'}
-  ];
-  const current = roles.find(r=>r.name===selected)!;
-  async function login(address=email, secret=password, expected=current.role) {
-    if(busy) return;
-    setBusy(true); setError('');
-    try {
-      const response = await post<{token:string;user:DataRow}>('/auth/login', {
-        email:address.trim().toLowerCase(), password:secret
-      });
-      if(response.user.role!==expected) {
-        setError('This account belongs to a different workspace. Select its matching role and try again.');
-        return;
-      }
-      sessionStorage.setItem('foodwise-token',response.token);
-      queryClient.clear();
-      setUser(response.user);
-      nav('/');
-    } catch(err) {
-      setError(err instanceof Error ? err.message : 'Unable to sign in. Please try again.');
-    } finally { setBusy(false); }
-  }
-  return (
-    <main className="fw-entry">
-      <header className="fw-entry-header">
-        <a className="fw-wordmark" href="/" aria-label="FoodWise home">
-          <span className="fw-logo-mark"><Leaf size={25} strokeWidth={1.8}/></span>
-          <span>Food<span>Wise</span><i>.</i></span>
-        </a>
-        <span className="fw-header-note">A more nourished tomorrow <span/></span>
-      </header>
-
-      <div className="fw-entry-layout">
-        <section className="fw-story" aria-labelledby="fw-story-title">
-          <div className="fw-story-copy">
-            <p className="fw-kicker"><span/> FOOD INTELLIGENCE. HUMAN IMPACT.</p>
-            <h1 id="fw-story-title">A little less waste.<br/><em>A lot more</em><br/>possibility.</h1>
-            <p className="fw-intro">Smarter kitchens. Stronger communities. Connect the food you have with the people who need it.</p>
-            <div className="fw-value-flow">
-              {[
-                {icon:ChartNoAxesCombined,title:'Predict',text:'Plan with insight'},
-                {icon:Sprout,title:'Prevent',text:'Prepare with care'},
-                {icon:HeartHandshake,title:'Redistribute',text:'Share the surplus'},
-                {icon:Recycle,title:'Recover',text:'Give waste purpose'}
-              ].map(({icon:Icon,title,text})=>(
-                <div className="fw-value" key={title}>
-                  <span className="fw-value-icon"><Icon size={22} strokeWidth={1.7}/></span>
-                  <strong>{title}</strong><small>{text}</small>
-                </div>
-              ))}
-            </div>
-          </div>
-          <figure className="fw-produce-scene">
-            <img src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=85" alt="Fresh vegetables arranged in a produce market" onError={e=>{e.currentTarget.style.visibility='hidden';}}/>
-            <div className="fw-scene-shade"/>
-            <figcaption><span className="fw-scene-leaf"><Leaf size={24}/></span><span>Good food.<br/><strong>Better possibilities.</strong></span></figcaption>
-            <span className="fw-scene-tag">PEOPLE · FOOD · PLANET</span>
-          </figure>
-        </section>
-
-        <section className="fw-signin" aria-labelledby="fw-signin-title">
-          <div className="fw-card-top"><span>YOUR IMPACT STARTS HERE</span><Leaf size={17}/></div>
-          <h2 id="fw-signin-title">Welcome to<br/>Food<span>Wise.</span></h2>
-          <p className="fw-signin-intro">Sign in to continue your impact.</p>
-
-          <form onSubmit={e=>{e.preventDefault();void login();}} aria-busy={busy}>
-            <fieldset className="fw-role-field" disabled={busy}>
-              <legend>Choose your workspace</legend>
-              <div className="fw-role-grid">
-                {roles.map(({name,icon:Icon,text})=>(
-                  <button type="button" key={name} className={'fw-role '+(selected===name?'is-selected':'')} aria-pressed={selected===name} onClick={()=>{setSelected(name);setError('');}}>
-                    <span className="fw-role-check" aria-hidden="true">{selected===name&&<Check size={10} strokeWidth={3}/>}</span>
-                    <Icon size={23} strokeWidth={1.6}/><strong>{name}</strong><small>{text}</small>
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-
-            <div className="fw-field">
-              <label htmlFor="fw-username">Username <span>your registered email</span></label>
-              <div className="fw-input-wrap"><Users size={18}/><input id="fw-username" name="username" type="email" autoComplete="username" autoCapitalize="none" spellCheck={false} required disabled={busy} value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@organization.com"/></div>
-            </div>
-            <div className="fw-field">
-              <label htmlFor="fw-password">Password</label>
-              <div className="fw-input-wrap"><ShieldCheck size={18}/><input id="fw-password" name="password" type={visible?'text':'password'} autoComplete="current-password" required disabled={busy} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter your password"/><button className="fw-password-toggle" type="button" aria-label={visible?'Hide password':'Show password'} aria-pressed={visible} onClick={()=>setVisible(!visible)}>{visible?'Hide':'Show'}</button></div>
-            </div>
-            <div className="fw-help-row"><button type="button" aria-expanded={help} aria-controls="fw-recovery-help" onClick={()=>setHelp(!help)}>Forgot password?</button></div>
-            {help&&<p className="fw-help" id="fw-recovery-help" role="status">Contact your FoodWise administrator to recover access. Self-service password reset is not available yet.</p>}
-            {error&&<div className="fw-login-error" role="alert"><Info size={17}/><span>{error}</span></div>}
-            <button type="submit" className="fw-signin-button" disabled={busy}>{busy?<><Loader2 className="spin" size={19}/> Signing in…</>:<>Sign in to workspace <ArrowRight size={18}/></>}</button>
-          </form>
-
-          {settings.data?.demo&&<details className="fw-demo">
-            <summary>Exploring FoodWise? Try a demo <ChevronDown size={14}/></summary>
-            <div className="fw-demo-body">
-              <p>Explore with synthetic data. Hotel and Factory currently share the institution demo.</p>
-              <button type="button" disabled={busy} onClick={()=>void login(`${current.demo}@foodwise.demo`,'FoodWise@2026')}>Open {selected} demo <ArrowUpRight size={15}/></button>
-              <div><button type="button" disabled={busy} onClick={()=>void login('logistics@foodwise.demo','FoodWise@2026','LOGISTICS')}>Logistics demo</button><button type="button" disabled={busy} onClick={()=>void login('night@foodwise.demo','FoodWise@2026','RECIPIENT')}>After-hours demo</button></div>
-            </div>
-          </details>}
-          <div className="fw-card-footer"><ShieldCheck size={15}/><span>One connected food ecosystem.</span></div>
-        </section>
-      </div>
-      <footer className="fw-entry-footer"><span><Sprout size={15}/> Thoughtful kitchens. Meaningful impact.</span><span>FOODWISE · BY TEAM ANVAY</span></footer>
-    </main>
-  );
-}
-
+function Login(){const {setUser}=useContext(Auth);const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [busy,setBusy]=useState('');const [error,setError]=useState('');const nav=useNavigate();const settings=useQuery({queryKey:['auth-config'],queryFn:()=>api('/auth/config')});async function login(e=email,p=password){setError('');setBusy(e);try{const r=await post('/auth/login',{email:e,password:p});sessionStorage.setItem('foodwise-token',r.token);queryClient.clear();setUser(r.user);nav('/');}catch(e){setError((e as Error).message)}finally{setBusy('')}}return <div className="login-page"><section className="login-story"><Brand/><div className="story-main"><span className="eyebrow">A BETTER WAY TO FEED THE FUTURE</span><h1>Less waste.<br/>More possibility.</h1><p>Thoughtful planning. Responsible redistribution.<br/>One connected food ecosystem.</p><div className="story-flow">{[[ChartNoAxesCombined,'Predict'],[Sprout,'Prevent'],[HeartHandshake,'Redistribute'],[Recycle,'Recover']].map(([Icon,label])=>{const I=Icon as React.ElementType;return <div key={String(label)}><I size={23}/><span>{String(label)}</span></div>})}</div></div><div className="login-bottom">TEAM ANVAY <span>Connected to Create</span></div></section><section className="login-form"><div><span className="eyebrow">WELCOME TO FOODWISE</span><h2>Your kitchen. A little wiser.</h2><p>Sign in to your workspace.</p><form onSubmit={e=>{e.preventDefault();void login()}}><label>Email address<input type="email" required autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@organization.com"/></label><label>Password<input type="password" required autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter your password"/></label>{error&&<div className="error" role="alert">{error}</div>}<Button type="submit" disabled={!!busy}>{busy?<Loader2 size={17} className="spin"/>:<>Sign in <ArrowRight size={17}/></>}</Button></form>{settings.data?.demo&&<><div className="divider"><span>EXPLORE THE DEMO</span></div><div className="demo-roles">{[['institution',Utensils],['recipient',HeartHandshake],['logistics',Truck],['admin',ShieldCheck]].map(([r,I])=>{const Icon=I as React.ElementType;return <button key={String(r)} disabled={!!busy} onClick={()=>login(`${r}@foodwise.demo`,'FoodWise@2026')}><Icon size={20}/><span>{roleName[String(r).toUpperCase()]}</span><ArrowUpRight size={15}/></button>})}</div><button className="text-link night-login" onClick={()=>login('night@foodwise.demo','FoodWise@2026')}>Open after-hours recipient demo <Moon size={14}/></button><p className="fineprint">Demo accounts use synthetic operational data. Simulated features are labeled throughout the workspace.</p></>}</div><footer>FoodWise · SIH 26234 <span>Built around prevention.</span></footer></section></div>}
 function Shell(){const {user,setUser}=useContext(Auth);const q=useQuery({queryKey:['workspace',user!.id],queryFn:()=>api('/workspace'),refetchInterval:15000});const [mobile,setMobile]=useState(false);const [toast,setToast]=useState('');const nav=useNavigate();const location=useLocation();useEffect(()=>{setMobile(false)},[location.pathname]);useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(''),5000);return()=>clearTimeout(t)}},[toast]);const refresh=async()=>{await q.refetch()};const links=navs[user!.role];const allowed=[...links.map(x=>x[0]),'/notifications','/settings','/about'];const d=q.data;const logout=()=>{sessionStorage.removeItem('foodwise-token');queryClient.clear();setUser(null);nav('/')};return <Workspace.Provider value={{data:d||{},refresh,message:setToast}}><div className="app-shell"><aside className={'sidebar '+(mobile?'is-open':'')}><Brand/><button className="org-switch" onClick={()=>nav('/settings')}><span className="org-avatar">{user!.role==='ADMIN'?'FW':'GV'}</span><span><strong>{d?.organization?.name||'Workspace'}</strong><small>{roleName[user!.role]}</small></span><ChevronDown size={15}/></button><div className="nav-label">WORKSPACE</div><nav>{links.map(([path,label,Icon])=><NavLink key={path} to={path} end className={({isActive})=>isActive?'active':''}><Icon size={18}/><span>{label}</span>{path==='/surplus'&&d?.analytics?.active>0&&<em>{d.analytics.active}</em>}</NavLink>)}</nav><div className="sidebar-bottom"><div className="philosophy"><Sprout size={19}/><div><strong>Every meal matters.</strong><small>Prevention comes first.</small></div></div><NavLink to="/settings"><Settings size={18}/> Settings & profile</NavLink><NavLink to="/about"><Info size={18}/> About FoodWise</NavLink><button onClick={logout}><LogOut size={18}/> Sign out</button><div className="team-credit">BY TEAM ANVAY <span>↗</span></div></div></aside>{mobile&&<button aria-label="Close navigation" className="mobile-shade" onClick={()=>setMobile(false)}/>}<div className="workspace"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-toggle" aria-label="Open navigation" onClick={()=>setMobile(!mobile)}><Menu size={22}/></button><span>Workspace</span><span>/</span><strong>{links.find(l=>l[0]===location.pathname)?.[1]||location.pathname.slice(1).replace('-',' ')}</strong></div><div className="topbar-right"><span className="demo-tag">{d?.mode||'Connecting'}</span><button className="notification-button icon-button" aria-label="Notifications" onClick={()=>nav('/notifications')}><Bell size={19}/>{d?.notifications?.some((n:DataRow)=>!n.read)&&<i/>}</button><div className="avatar" title={user!.name}>{user!.name.slice(0,2).toUpperCase()}</div></div></header><main>{q.isPending?<Loading/>:q.error?<div className="error-panel"><h2>Workspace could not load</h2><p>{(q.error as Error).message}</p><Button onClick={()=>void refresh()}>Try again</Button></div>:!allowed.includes(location.pathname)?<Navigate to="/" replace/>:<Routes><Route path="/" element={<Overview/>}/><Route path="/forecast" element={<Forecast/>}/><Route path="/pos" element={<PosPage/>}/><Route path="/production" element={<Production/>}/><Route path="/inventory" element={<Inventory/>}/><Route path="/sensors" element={<Sensors/>}/><Route path="/processing" element={<Processing/>}/>{['surplus','redistribution','after-hours','offers','requests','deliveries','history'].map(p=><Route key={p} path={'/'+p} element={<SurplusPage mode={p}/>}/>)}<Route path="/recovery" element={<Recovery/>}/>{['institutions','recipients','logistics'].map(p=><Route key={p} path={'/'+p} element={<Organizations kind={p}/>}/>)}<Route path="/analytics" element={<Analytics/>}/><Route path="/reports" element={<Reports/>}/><Route path="/notifications" element={<Notifications/>}/><Route path="/settings" element={<SettingsPage/>}/><Route path="/requirements" element={<SettingsPage requirements/>}/><Route path="/status" element={<StatusPage/>}/><Route path="/audit" element={<Audit/>}/><Route path="/about" element={<About/>}/></Routes>}</main><footer className="workspace-footer"><span>FoodWise <span>·</span> Prevent → Redistribute → Recover → Dispose</span><span>{d?.database}</span></footer></div>{toast&&<div className="toast" role="status"><Check size={18}/>{toast}<button aria-label="Dismiss" onClick={()=>setToast('')}><X size={15}/></button></div>}</div></Workspace.Provider>}
 function PageHead({eyebrow='KITCHEN INTELLIGENCE',title,sub,actions}:{eyebrow?:string;title:string;sub:string;actions?:React.ReactNode}){return <div className="page-head"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{sub}</p></div><div className="page-actions">{actions}</div></div>}
 function Kpis(){const {data:d}=useContext(Workspace);const {user}=useContext(Auth);const a=d.analytics;const entries=user!.role==='LOGISTICS'?[['Completed deliveries',a.completed,'Recorded handovers',Truck],['Food transported',a.redistributed+' kg','Serving-to-mass estimate',Package],['Active requests',a.active,'Across your delivery queue',Activity],['After-hours deliveries',a.afterHours,'Completed records',Moon]]:user!.role==='RECIPIENT'?[['Food received',a.redistributed+' kg','Serving-to-mass estimate',Package],['Meal equivalents',a.meals,'Estimated from received food',Utensils],['Active requests',a.active,'Offers and ongoing collections',Activity],['Completed collections',a.completed,'Confirmed receipts',HeartHandshake]]:[['Waste prevented',a.prevented+' kg','Estimated vs. recorded baseline',Sprout],['Food redistributed',a.redistributed+' kg','From completed records',HeartHandshake],['Meal equivalents',a.meals,'Estimated · '+a.methodology.kgPerServing+' kg per serving',Utensils],['CO₂e impact',a.estimatedCo2+' kg','Estimated · illustrative factor',Leaf]];return <div className="kpi-grid">{entries.map(([label,value,caption,I],i)=>{const Icon=I as React.ElementType;return <div className="kpi" key={String(label)}><div><span>{String(label)}</span><Icon size={18}/></div><strong>{String(value)}</strong><small><span className={'metric-marker marker-'+i}/>{String(caption)}</small></div>})}</div>}
@@ -162,4 +39,3 @@ function StatusPage(){const q=useQuery({queryKey:['status'],queryFn:()=>api('/st
 function Audit(){const {data:d}=useContext(Workspace);return <><PageHead title="Every action, accounted for." sub="A searchable record of the decisions and handovers across FoodWise."/><Panel title="Audit trail"><Table rows={d.audit} columns={[{key:'createdAt',label:'Time',render:r=>time(r.createdAt)},{key:'actor',label:'Actor'},{key:'role',label:'Role'},{key:'action',label:'Action'},{key:'entityId',label:'Record reference'}]}/></Panel></>}
 function About(){return <><PageHead title="A little wiser. A lot less waste." sub="FoodWise by Team Anvay · Connected to Create"/><Panel title="Prevent → Redistribute → Recover → Dispose"><div className="padded about-copy"><p>FoodWise supports institutions before, during and after food preparation: demand planning, inventory monitoring, image-supported review, recipient matching, logistics and impact reporting.</p><div className="detail-grid"><div><span>Problem statement</span><strong>SIH 26234</strong></div><div><span>Organization</span><strong>Ministry of Food Processing Industries</strong></div><div><span>Theme</span><strong>Agriculture, FoodTech & Rural Development</strong></div><div><span>Team</span><strong>Anvay · Connected to Create</strong></div></div><h3>Prototype transparency</h3><p>Forecasts use synthetic or uploaded institutional POS-style records. Vision runs a real general-purpose image classifier, which cannot determine freshness or food safety. IoT, routes, recovery destinations and processing readings are simulated. Sustainability conversion factors are illustrative estimates.</p><p>Live POS, Tally, production WhatsApp, external logistics and real IoT integrations are future work. FoodWise provides decision support; final food handling follows organizational and applicable safety procedures.</p></div></Panel></>}
 export default function Root(){return <QueryClientProvider client={queryClient}><BrowserRouter><App/></BrowserRouter></QueryClientProvider>}
-
