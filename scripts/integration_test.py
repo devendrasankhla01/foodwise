@@ -31,7 +31,7 @@ try:
   for i in range(100):
    try:req('/health');break
    except urllib.error.URLError:time.sleep(.1)
-  roles={r:login(r) for r in ['admin','institution','recipient','logistics','night']}
+  roles={r:login(r) for r in ['admin','institution','factory','recipient','night']}
   req('/api/workspace',expected=401)
   req('/api/organizations/rec-1','PATCH',{'verified':False},roles['recipient'],403)
   req('/api/auth/login','POST',{'email':'institution@foodwise.demo','password':'incorrect'},expected=401)
@@ -45,14 +45,14 @@ try:
   accepted=action(roles['recipient'],x,'accept',{'mode':'delivery'});delivery=accepted['deliveryCode'];assert 'pickupCode' not in accepted
   inst=req('/api/workspace',token=roles['institution']);pickup=next(r for r in inst['surplus'] if r['id']==x)['pickupCode']
   action(roles['recipient'],x,'accept',{'mode':'delivery'},409)
-  claimed=action(roles['logistics'],x,'claim');assert 'pickupCode' not in claimed and 'deliveryCode' not in claimed
-  action(roles['logistics'],x,'claim',{},409)
-  action(roles['logistics'],x,'deliver',{'code':delivery},409)
-  action(roles['logistics'],x,'arrive')
-  action(roles['logistics'],x,'pickup',{'code':'000000'},400)
-  action(roles['logistics'],x,'pickup',{'code':pickup})
-  action(roles['logistics'],x,'transit')
-  action(roles['logistics'],x,'deliver',{'code':delivery})
+  claimed=action(roles['institution'],x,'claim');assert claimed['pickupCode']==pickup and 'deliveryCode' not in claimed
+  action(roles['institution'],x,'claim',{},409)
+  action(roles['institution'],x,'deliver',{'code':delivery},409)
+  action(roles['institution'],x,'arrive')
+  action(roles['institution'],x,'pickup',{'code':'000000'},400)
+  action(roles['institution'],x,'pickup',{'code':pickup})
+  action(roles['institution'],x,'transit')
+  action(roles['institution'],x,'deliver',{'code':delivery})
   result=action(roles['recipient'],x,'confirm',{'quantity':38});assert result['status']=='completed'
   late=req('/api/demo/scenario','POST',{'scenario':'after-hours'},roles['institution'])
   m=req('/api/surplus/'+late['id']+'/matches',token=roles['institution']);assert m['afterHours'] and m['matches'][0]['recipientId']=='rec-3'

@@ -1,53 +1,986 @@
-import {Router} from 'express';
-import type {Request,Response,NextFunction} from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import {z} from 'zod';
-import multer from 'multer';
-import PDFDocument from 'pdfkit';
-import {config} from '../config.js';
-import {auth,roles} from '../middleware/auth.js';
-import {readState,mutate,databaseStatus} from '../repositories/store.js';
-import {id,now,fail,audit,notify,assess,matches,owned,workflow,visibleSurplus,analytics} from '../services/domain.js';
-import {aiCall} from '../services/ai.js';
-import {parseCsv,importCsv} from '../services/csv.js';
-import type {State,Row,Surplus} from '../types.js';
-const router=Router();const wrap=(fn:(req:Request,res:Response)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>{fn(req,res).catch(next);};
-const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024,files:1}});
-const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>Number.isFinite(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v,'Invalid calendar date');
-const str=z.string().trim().min(1).max(150);const nonnegative=z.coerce.number().finite().min(0).max(1000000);
-router.post('/auth/login',wrap(async(req,res)=>{const input=z.object({email:z.string().email(),password:z.string().min(1).max(200)}).parse(req.body);const s=await readState();const u=s.users.find(u=>u.email===input.email.toLowerCase());if(!u||!u.active||!s.organizations.find(o=>o.id===u.organizationId)?.active||!(await bcrypt.compare(input.password,u.passwordHash)))fail('Incorrect email or password.',401);const {passwordHash,...user}=u;res.json({token:jwt.sign({},config.jwt,{subject:u.id,expiresIn:'8h',algorithm:'HS256'}),user});}));
-router.get('/auth/config',(_req,res)=>res.json({demo:config.demo}));
+import { Router } from "express";
+import type { Request, Response, NextFunction } from "express";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { z } from "zod";
+import multer from "multer";
+import PDFDocument from "pdfkit";
+import { config } from "../config.js";
+import { auth, roles } from "../middleware/auth.js";
+import { readState, mutate, databaseStatus } from "../repositories/store.js";
+import {
+  id,
+  now,
+  fail,
+  audit,
+  notify,
+  assess,
+  matches,
+  owned,
+  workflow,
+  visibleSurplus,
+  analytics,
+} from "../services/domain.js";
+import { aiCall } from "../services/ai.js";
+import { parseCsv, importCsv } from "../services/csv.js";
+import type { State, Row, Surplus } from "../types.js";
+const router = Router();
+const wrap =
+  (fn: (req: Request, res: Response) => Promise<unknown>) =>
+  (req: Request, res: Response, next: NextFunction) => {
+    fn(req, res).catch(next);
+  };
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+});
+const date = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(
+    (v) =>
+      Number.isFinite(Date.parse(v)) &&
+      new Date(v).toISOString().slice(0, 10) === v,
+    "Invalid calendar date",
+  );
+const institutionType = (s: State, organizationId: string) =>
+  s.organizations.find((o) => o.id === organizationId)?.subtype === "Factory"
+    ? "FACTORY"
+    : "HOTEL_RESTAURANT";
+const str = z.string().trim().min(1).max(150);
+const nonnegative = z.coerce.number().finite().min(0).max(1000000);
+router.post(
+  "/auth/login",
+  wrap(async (req, res) => {
+    const input = z
+      .object({
+        email: z.string().email(),
+        password: z.string().min(1).max(200),
+        workspace: z
+          .enum(["HOTEL_RESTAURANT", "FACTORY", "RECIPIENT", "ADMIN"])
+          .optional(),
+      })
+      .parse(req.body);
+    const s = await readState();
+    const u = s.users.find((u) => u.email === input.email.toLowerCase());
+    if (
+      !u ||
+      !u.active ||
+      !s.organizations.find((o) => o.id === u.organizationId)?.active ||
+      !(await bcrypt.compare(input.password, u.passwordHash))
+    )
+      fail("Incorrect email or password.", 401);
+    const { passwordHash, ...details } = u;
+    const user = {
+      ...details,
+      institutionType:
+        u.role === "INSTITUTION"
+          ? institutionType(s, u.organizationId)
+          : undefined,
+    };
+    const actual = u.role === "INSTITUTION" ? user.institutionType : u.role;
+    if (input.workspace && input.workspace !== actual)
+      fail("Choose the workspace associated with this account.", 403);
+    res.json({
+      token: jwt.sign({}, config.jwt, {
+        subject: u.id,
+        expiresIn: "8h",
+        algorithm: "HS256",
+      }),
+      user,
+    });
+  }),
+);
+router.get("/auth/config", (_req, res) => res.json({ demo: config.demo }));
 router.use(auth);
-router.get('/auth/me',wrap(async(req,res)=>{const s=await readState();const {passwordHash,...user}=s.users.find(u=>u.id===req.actor.id)!;res.json(user);}));
-router.get('/workspace',wrap(async(req,res)=>{const s=await readState();const a=req.actor;const mine=(xs:Row[])=>xs.filter(x=>a.role==='ADMIN'||x.organizationId===a.organizationId);const org=s.organizations.find(o=>o.id===a.organizationId);const institutions=a.role==='ADMIN'||a.role==='INSTITUTION';const surplus=visibleSurplus(s,a);const pos=institutions?mine(s.pos):[];res.json({organization:org,organizations:s.organizations.map(o=>a.role==='ADMIN'||o.id===a.organizationId?o:{id:o.id,name:o.name,type:o.type,subtype:o.subtype,address:o.address,verified:o.verified,active:o.active,available:o.available,afterHours:o.afterHours,capacity:o.capacity,requirement:o.requirement,dietary:o.dietary,categories:o.categories,pickup:o.pickup,refrigeration:o.refrigeration,distance:o.distance}),inventory:institutions?mine(s.inventory):[],events:institutions?mine(s.events):[],production:institutions?mine(s.production).slice(-100):[],pos:pos.slice(-50).reverse(),posCount:pos.length,imports:institutions?mine(s.imports).slice(0,20):[],forecasts:institutions?mine(s.forecasts).slice(0,10):[],surplus:surplus.slice(0,200),recovery:institutions?mine(s.recovery):[],notifications:s.notifications.filter(n=>n.organizationId===a.organizationId).slice(0,100),audit:a.role==='ADMIN'?s.audit.slice(0,150):[],reports:mine(s.reports).slice(0,30),analytics:analytics(s,a),mode:config.demo?'Demo data':'Connected workspace',database:databaseStatus(),settings:a.role==='ADMIN'?s.settings:undefined});}));
-router.get('/records/:kind',wrap(async(req,res)=>{const allowed=['pos','surplus','notifications','audit','organizations','production'];if(!allowed.includes(req.params.kind))fail('Unknown collection',404);const s=await readState();const a=req.actor;if(['audit','organizations'].includes(req.params.kind)&&a.role!=='ADMIN')fail('Access denied',403);if(['pos','production'].includes(req.params.kind)&&!['ADMIN','INSTITUTION'].includes(a.role))fail('Access denied',403);let rows:unknown[]=req.params.kind==='surplus'?visibleSurplus(s,a):req.params.kind==='organizations'?s.organizations:(s[req.params.kind as 'pos'] as unknown as Row[]).filter(r=>a.role==='ADMIN'||r.organizationId===a.organizationId);const page=Math.max(1,Number(req.query.page)||1),limit=Math.min(100,Math.max(1,Number(req.query.limit)||25));const q=String(req.query.q||'').toLowerCase();if(q)rows=rows.filter(r=>JSON.stringify(r).toLowerCase().includes(q));res.json({total:rows.length,page,limit,rows:rows.slice((page-1)*limit,page*limit)});}));
-const inventorySchema=z.object({itemName:str,quantity:nonnegative,unit:z.enum(['kg','grams','liters','packets']),minimum:nonnegative,expiry:date,storage:str,batch:str,category:str});
-const eventSchema=z.object({title:str,date,mealType:z.enum(['Breakfast','Lunch','Dinner']),attendees:z.coerce.number().int().min(1).max(10000),notes:z.string().max(500).default(''),status:z.enum(['Confirmed','Tentative']).default('Confirmed')});
-const productionSchema=z.object({date,itemName:str,prepared:nonnegative,consumed:nonnegative,baseline:nonnegative.optional(),manualOverride:nonnegative.optional(),overrideReason:z.string().max(500).optional()}).refine(x=>x.consumed<=x.prepared,'Consumed cannot exceed prepared quantity. Record unmet demand separately.');
-router.post('/inventory',roles('INSTITUTION'),wrap(async(req,res)=>{const v=inventorySchema.parse(req.body);res.status(201).json(await mutate(s=>{const row={...v,id:id(),organizationId:req.actor.organizationId,createdAt:now()};s.inventory.unshift(row);audit(s,req.actor,'Inventory item added',row.id);return row;}));}));
-router.patch('/inventory/:id',roles('INSTITUTION'),wrap(async(req,res)=>{const v=inventorySchema.partial().parse(req.body);res.json(await mutate(s=>{const row=s.inventory.find(x=>x.id===req.params.id&&x.organizationId===req.actor.organizationId);if(!row)fail('Inventory item not found',404);Object.assign(row,v);audit(s,req.actor,'Inventory updated',row.id);return row;}));}));
-router.post('/inventory/:id/consume',roles('INSTITUTION'),wrap(async(req,res)=>{const {quantity}=z.object({quantity:z.coerce.number().positive()}).parse(req.body);res.json(await mutate(s=>{const x=s.inventory.find(x=>x.id===req.params.id&&x.organizationId===req.actor.organizationId);if(!x)fail('Item not found',404);if(Number(x.quantity)<quantity)fail('Not enough stock');x.quantity=Number(x.quantity)-quantity;audit(s,req.actor,'Stock consumed',x.id);return x;}));}));
-router.post('/events',roles('INSTITUTION'),wrap(async(req,res)=>{const v=eventSchema.parse(req.body);res.status(201).json(await mutate(s=>{const row={...v,id:id(),organizationId:req.actor.organizationId,createdAt:now()};s.events.unshift(row);audit(s,req.actor,'Event added',row.id);return row;}));}));
-router.post('/production',roles('INSTITUTION'),wrap(async(req,res)=>{const v=productionSchema.parse(req.body);res.status(201).json(await mutate(s=>{const row={...v,id:id(),organizationId:req.actor.organizationId,createdAt:now(),surplus:v.prepared-v.consumed,unit:'servings',source:'Manual entry'};s.production.push(row);audit(s,req.actor,'Production recorded',row.id);return row;}));}));
-router.post('/pos/preview',roles('INSTITUTION'),upload.single('file'),wrap(async(req,res)=>{if(!req.file||!req.file.originalname.toLowerCase().endsWith('.csv'))fail('Choose a CSV file');const p=parseCsv(req.file.buffer.toString('utf8'));res.json({total:p.total,errors:p.errors,preview:p.valid.slice(0,8)});}));
-router.post('/pos/import',roles('INSTITUTION'),upload.single('file'),wrap(async(req,res)=>{if(!req.file||!req.file.originalname.toLowerCase().endsWith('.csv'))fail('Choose a CSV file');res.json(await mutate(s=>importCsv(s,req.actor,req.file!.buffer.toString('utf8'),req.file!.originalname)));}));
-router.get('/pos/sample',roles('INSTITUTION'),wrap(async(req,res)=>{const s=await readState();const rows=s.pos.filter(x=>x.organizationId===req.actor.organizationId);res.type('text/csv').attachment('foodwise-synthetic-pos.csv').send('transactionId,date,itemName,quantitySold,mealType,unitPrice\n'+rows.map(r=>[r.transactionId,r.date,r.itemName,r.quantitySold,r.mealType,r.unitPrice].map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\n'));}));
-router.post('/forecast',roles('INSTITUTION'),wrap(async(req,res)=>{const input=z.object({date,mealType:z.enum(['Breakfast','Lunch','Dinner']),buffer:z.coerce.number().min(0).max(15),override:nonnegative.optional(),reason:z.string().max(500).optional()}).parse(req.body);const s=await readState();const history=s.pos.filter(p=>p.organizationId===req.actor.organizationId&&p.date<input.date&&p.mealType===input.mealType).map(p=>({date:p.date,itemName:p.itemName,quantitySold:p.quantitySold,mealType:p.mealType}));const events=s.events.filter(e=>e.organizationId===req.actor.organizationId&&e.date===input.date&&e.mealType===input.mealType);const result=await aiCall('/forecast',{...input,history,eventAttendance:events.filter(e=>e.status==='Confirmed').reduce((n,e)=>n+Number(e.attendees),0)});const row={id:id(),organizationId:req.actor.organizationId,createdAt:now(),...input,...result,events:events.map(e=>e.title)};await mutate(st=>{st.forecasts.unshift(row);st.forecasts=st.forecasts.slice(0,200);audit(st,req.actor,'Forecast generated',row.id);});res.json(row);}));
-const surplusSchema=z.object({foodName:str,category:z.enum(['Cooked meals','Produce','Packaged food']),dietaryType:z.enum(['Vegetarian','Non-vegetarian','Vegan']),quantity:z.coerce.number().positive().max(100000),unit:z.enum(['servings','kg','grams','liters','packets']),servings:z.coerce.number().min(0).max(100000),preparedAt:z.string().datetime(),detectedAt:z.string().datetime(),availableUntil:z.string().datetime(),storageMethod:z.enum(['Hot held','Refrigerated','Shelf stable','Room temperature']),temperature:z.coerce.number().min(-40).max(150).nullable(),packagingStatus:z.enum(['Sealed','Unsealed']),declaration:z.boolean(),contaminated:z.boolean(),organic:z.boolean(),notes:z.string().max(1000).default('')}).refine(v=>Date.parse(v.preparedAt)<=Date.parse(v.detectedAt)&&Date.parse(v.detectedAt)<=Date.now()+60000&&Date.parse(v.availableUntil)>Date.parse(v.detectedAt),'Check preparation, detection and availability times.');
-router.post('/surplus',roles('INSTITUTION'),wrap(async(req,res)=>{const v=surplusSchema.parse(req.body);res.status(201).json(await mutate(s=>{const x:Surplus={...v,id:id(),organizationId:req.actor.organizationId,createdAt:now(),status:'available',assessment:'manual review',assessmentReasons:[],afterHours:false,timeline:[{at:now(),action:'Surplus created',actor:req.actor.name}]};const assessment=assess(x,s.settings.minimumWindowMinutes);x.assessment=assessment.status;x.assessmentReasons=assessment.reasons;s.surplus.unshift(x);audit(s,req.actor,'Surplus created',x.id);return x;}));}));
-router.post('/demo/scenario',roles('INSTITUTION'),wrap(async(req,res)=>{if(!config.demo)fail('Demo scenario unavailable',404);const {scenario}=z.object({scenario:z.enum(['after-hours','recovery'])}).parse(req.body);res.json(await mutate(s=>{const x:Surplus={id:id(),organizationId:req.actor.organizationId,createdAt:now(),foodName:scenario==='after-hours'?'Late service · Veg meals':'Short-window rice surplus',category:'Cooked meals',dietaryType:'Vegetarian',quantity:40,unit:'servings',servings:40,preparedAt:new Date(Date.now()-3600000).toISOString(),detectedAt:now(),availableUntil:new Date(Date.now()+(scenario==='after-hours'?120:10)*60000).toISOString(),storageMethod:'Hot held',temperature:65,packagingStatus:'Sealed',declaration:true,organic:true,contaminated:false,status:'available',assessment:'',assessmentReasons:[],afterHours:scenario==='after-hours',rejectedRecipientIds:scenario==='after-hours'?s.organizations.filter(o=>o.type==='RECIPIENT'&&!o.afterHours).map(o=>o.id):[],timeline:[{at:now(),actor:'Demo scenario',action:scenario==='after-hours'?'Simulated regular-recipient declines; checking after-hours network':'Short remaining window scenario'}]};const a=assess(x,s.settings.minimumWindowMinutes);x.assessment=a.status;x.assessmentReasons=a.reasons;s.surplus.unshift(x);audit(s,req.actor,'Demo scenario created',x.id);return x;}));}));
-router.get('/surplus/:id/matches',roles('INSTITUTION','ADMIN'),wrap(async(req,res)=>{const s=await readState();const x=owned(s,req.actor,req.params.id);res.json(matches(s,x));}));
-router.post('/surplus/:id/action',wrap(async(req,res)=>{const input=z.object({action:z.string(),payload:z.record(z.unknown()).default({})}).parse(req.body);await mutate(s=>{workflow(s,req.actor,req.params.id,input.action,input.payload);return true;});const s=await readState();res.json(visibleSurplus(s,req.actor).find(x=>x.id===req.params.id)||{success:true});}));
-router.post('/surplus/:id/vision',roles('INSTITUTION'),upload.single('file'),wrap(async(req,res)=>{const s=await readState();owned(s,req.actor,req.params.id);if(!req.file||!['image/jpeg','image/png','image/webp'].includes(req.file.mimetype))fail('Upload a JPEG, PNG or WebP image (maximum 5 MB).');const result=await aiCall('/vision',{image:req.file.buffer.toString('base64')});await mutate(st=>{const x=owned(st,req.actor,req.params.id);x.cv=result;audit(st,req.actor,'Visual inference completed',x.id);});res.json(result);}));
-router.patch('/profile',wrap(async(req,res)=>{const v=z.object({name:str.optional(),address:str.optional(),phone:z.string().max(30).optional(),available:z.boolean().optional(),capacity:nonnegative.optional(),requirement:nonnegative.optional(),pickup:z.boolean().optional(),refrigeration:z.boolean().optional(),dietary:z.array(z.enum(['Vegetarian','Non-vegetarian','Vegan'])).min(1).optional(),categories:z.array(z.enum(['Cooked meals','Produce','Packaged food'])).min(1).optional(),openHour:z.coerce.number().min(0).max(23).optional(),closeHour:z.coerce.number().min(0).max(24).optional(),buffer:z.coerce.number().min(0).max(15).optional(),vehicle:str.optional()}).parse(req.body);res.json(await mutate(s=>{const org=s.organizations.find(o=>o.id===req.actor.organizationId)!;Object.assign(org,v);audit(s,req.actor,'Profile updated',org.id);return org;}));}));
-router.patch('/organizations/:id',roles('ADMIN'),wrap(async(req,res)=>{const v=z.object({verified:z.boolean().optional(),active:z.boolean().optional()}).parse(req.body);res.json(await mutate(s=>{const org=s.organizations.find(o=>o.id===req.params.id);if(!org)fail('Organization not found',404);if(org.id===req.actor.organizationId)fail('Cannot deactivate your own admin organization');Object.assign(org,v);audit(s,req.actor,'Organization status updated',org.id);return org;}));}));
-router.patch('/settings',roles('ADMIN'),wrap(async(req,res)=>{const v=z.object({kgPerServing:z.coerce.number().positive().max(2),co2PerKg:z.coerce.number().min(0).max(50),costPerKg:z.coerce.number().min(0).max(10000),minimumWindowMinutes:z.coerce.number().min(15).max(240),pickupDelayMinutes:z.coerce.number().min(5).max(120)}).parse(req.body);res.json(await mutate(s=>{s.settings=v;audit(s,req.actor,'Impact and handling assumptions updated','settings');return v;}));}));
-router.patch('/notifications/:id',wrap(async(req,res)=>{await mutate(s=>{const n=s.notifications.find(n=>n.id===req.params.id&&n.organizationId===req.actor.organizationId);if(!n)fail('Notification not found',404);n.read=true;});res.json({success:true});}));
-router.patch('/recovery/:id',roles('INSTITUTION','ADMIN'),wrap(async(req,res)=>{const {status}=z.object({status:z.enum(['handed over','completed'])}).parse(req.body);res.json(await mutate(s=>{const x=s.recovery.find(x=>x.id===req.params.id&&(req.actor.role==='ADMIN'||x.organizationId===req.actor.organizationId));if(!x)fail('Recovery record not found',404);if(!((x.status==='scheduled'&&status==='handed over')||(x.status==='handed over'&&status==='completed')))fail('Invalid recovery transition',409);x.status=status;audit(s,req.actor,'Recovery '+status,x.id);return x;}));}));
-router.get('/sensors',roles('INSTITUTION','ADMIN'),wrap(async(_req,res)=>{const t=Date.now()/60000;const specs=[['COLD-01','Cold storage','Temperature','°C',4,1.8,5],['DRY-02','Dry store','Humidity','%',48,9,60],['SCALE-03','Preparation area','Storage weight','kg',72,5,100],['ENERGY-04','Cold storage','Energy','kWh',12,2,15]];res.json({mode:'Simulated IoT Data',sensors:specs.map(([id,location,label,unit,base,range,limit],i)=>{const value=Number((Number(base)+Math.sin(t/5+i)*Number(range)).toFixed(1));return {id,location,label,unit,value,limit,status:value>Number(limit)?'attention':'within demo range',timestamp:now(),history:Array.from({length:20},(_,j)=>({time:j,value:Number((Number(base)+Math.sin((t-20+j)/5+i)*Number(range)).toFixed(1))}))};})});}));
-router.get('/status',roles('ADMIN'),wrap(async(_req,res)=>{let ai:unknown={status:'Offline'};try{const r=await fetch(config.ai+'/health',{signal:AbortSignal.timeout(4000)});ai=await r.json();}catch{}res.json({api:'Healthy',database:databaseStatus(),ai,pos:'Synthetic CSV',iot:'Simulation',routing:'Simulation',whatsapp:'Not connected — in-app notifications active',tally:'Future integration',logistics:'Internal prototype workflow'});}));
-router.get('/analytics',wrap(async(req,res)=>{const s=await readState();res.json(analytics(s,req.actor,String(req.query.from||''),String(req.query.to||'9999')));}));
-router.get('/analytics.csv',wrap(async(req,res)=>{const s=await readState();const a=analytics(s,req.actor);res.type('text/csv').attachment('foodwise-impact.csv').send('metric,value,unit\n'+[['prevented',a.prevented,'estimated kg'],['redistributed',a.redistributed,'estimated kg'],['recovered',a.recovered,'kg'],['disposed',a.disposed,'kg'],['meals',a.meals,'estimated equivalents'],['co2',a.estimatedCo2,'estimated kg CO2e']].map(r=>r.join(',')).join('\n'));}));
-router.get('/reports.pdf',roles('ADMIN','INSTITUTION'),wrap(async(req,res)=>{const from=date.parse(req.query.from),to=date.parse(req.query.to);if(from>to)fail('Start date must be before end date');const s=await readState();const institutionId=req.actor.role==='ADMIN'?String(req.query.institutionId||''):'';if(institutionId&&!s.organizations.some(o=>o.id===institutionId&&o.type==='INSTITUTION'))fail('Institution not found',404);const reportActor=institutionId?{...req.actor,role:'INSTITUTION' as const,organizationId:institutionId}:req.actor;const a=analytics(s,reportActor,from,to);const org=s.organizations.find(o=>o.id===reportActor.organizationId)!;const report={id:id(),organizationId:req.actor.organizationId,createdAt:now(),from,to,institutionId,title:'Sustainability report'};await mutate(st=>{st.reports.unshift(report);audit(st,req.actor,'Sustainability report generated',report.id);});res.type('application/pdf').attachment(`FoodWise-${from}-${to}.pdf`);const pdf=new PDFDocument({size:'A4',margin:48});pdf.font('assets/DejaVuSans.ttf');pdf.pipe(res);pdf.rect(0,0,595,150).fill('#164c3b');pdf.fillColor('#d5ef9d').fontSize(30).text('FoodWise',48,38);pdf.fillColor('white').fontSize(16).text('Sustainability & operational impact',48,80);pdf.fontSize(10).text(`${org.name}  |  ${from} to ${to}`,48,112);pdf.fillColor('#173e32').fontSize(12).text('PROTOTYPE REPORT · ESTIMATED METRICS',48,177);let y=220;for(const [label,value,unit] of [['Waste prevented',a.prevented,'estimated kg'],['Food redistributed',a.redistributed,'estimated kg'],['Organic material recovered',a.recovered,'kg / serving conversion'],['Final disposal',a.disposed,'kg / serving conversion'],['Meal equivalents',a.meals,'estimated meals'],['Cost avoided',a.estimatedCost,'INR (estimated)'],['Emissions impact',a.estimatedCo2,'kg CO2e (estimated)'],['Completed redistributions',a.completed,'records']]){pdf.fillColor('#f1f5f2').rect(48,y-7,499,33).fill();pdf.fillColor('#173e32').fontSize(11).text(String(label),60,y).text(`${Number(value).toLocaleString('en-IN')} ${unit}`,305,y,{width:230,align:'right'});y+=41;}pdf.fontSize(12).text('Methodology and limitations',48,y+12);pdf.fillColor('#53635c').fontSize(10).text(`Record-derived quantities are converted only where a mass or serving measure is available. Assumptions: ${s.settings.kgPerServing} kg/serving; ${s.settings.co2PerKg} kg CO2e/kg prevented or redistributed; INR ${s.settings.costPerKg}/kg prevented. Prevention compares recorded baseline preparation with actual preparation, not a proven causal reduction. Synthetic history is demonstration data. Recovery is separate from redistribution; no recovery emissions credit is claimed. These configurable factors are illustrative and are not audited ESG results.`,48,y+38,{width:499,lineGap:3});pdf.fontSize(9).text('Team Anvay · Connected to Create · SIH 26234',48,780);pdf.end();}));
+router.get(
+  "/auth/me",
+  wrap(async (req, res) => {
+    const s = await readState();
+    const { passwordHash, ...user } = s.users.find(
+      (u) => u.id === req.actor.id,
+    )!;
+    res.json({
+      ...user,
+      institutionType:
+        user.role === "INSTITUTION"
+          ? institutionType(s, user.organizationId)
+          : undefined,
+    });
+  }),
+);
+router.get(
+  "/workspace",
+  wrap(async (req, res) => {
+    const s = await readState();
+    const a = req.actor;
+    const mine = (xs: Row[]) =>
+      xs.filter(
+        (x) => a.role === "ADMIN" || x.organizationId === a.organizationId,
+      );
+    const org = s.organizations.find((o) => o.id === a.organizationId);
+    const institutions = a.role === "ADMIN" || a.role === "INSTITUTION";
+    const surplus = visibleSurplus(s, a);
+    const pos = institutions ? mine(s.pos) : [];
+    res.json({
+      organization: org,
+      organizations: s.organizations.map((o) =>
+        a.role === "ADMIN" || o.id === a.organizationId
+          ? o
+          : {
+              id: o.id,
+              name: o.name,
+              type: o.type,
+              subtype: o.subtype,
+              address: o.address,
+              verified: o.verified,
+              active: o.active,
+              available: o.available,
+              afterHours: o.afterHours,
+              capacity: o.capacity,
+              requirement: o.requirement,
+              dietary: o.dietary,
+              categories: o.categories,
+              pickup: o.pickup,
+              refrigeration: o.refrigeration,
+              distance: o.distance,
+            },
+      ),
+      inventory: institutions ? mine(s.inventory) : [],
+      events: institutions ? mine(s.events) : [],
+      production: institutions ? mine(s.production).slice(-100) : [],
+      pos: pos.slice(-50).reverse(),
+      posCount: pos.length,
+      imports: institutions ? mine(s.imports).slice(0, 20) : [],
+      forecasts: institutions ? mine(s.forecasts).slice(0, 10) : [],
+      surplus: surplus.slice(0, 200),
+      recovery: institutions ? mine(s.recovery) : [],
+      notifications: s.notifications
+        .filter((n) => n.organizationId === a.organizationId)
+        .slice(0, 100),
+      audit: a.role === "ADMIN" ? s.audit.slice(0, 150) : [],
+      reports: mine(s.reports).slice(0, 30),
+      analytics: analytics(s, a),
+      mode: config.demo ? "Demo data" : "Connected workspace",
+      database: databaseStatus(),
+      settings: a.role === "ADMIN" ? s.settings : undefined,
+    });
+  }),
+);
+router.get(
+  "/records/:kind",
+  wrap(async (req, res) => {
+    const allowed = [
+      "pos",
+      "surplus",
+      "notifications",
+      "audit",
+      "organizations",
+      "production",
+    ];
+    if (!allowed.includes(req.params.kind)) fail("Unknown collection", 404);
+    const s = await readState();
+    const a = req.actor;
+    if (
+      ["audit", "organizations"].includes(req.params.kind) &&
+      a.role !== "ADMIN"
+    )
+      fail("Access denied", 403);
+    if (
+      ["pos", "production"].includes(req.params.kind) &&
+      !["ADMIN", "INSTITUTION"].includes(a.role)
+    )
+      fail("Access denied", 403);
+    let rows: unknown[] =
+      req.params.kind === "surplus"
+        ? visibleSurplus(s, a)
+        : req.params.kind === "organizations"
+          ? s.organizations
+          : (s[req.params.kind as "pos"] as unknown as Row[]).filter(
+              (r) =>
+                a.role === "ADMIN" || r.organizationId === a.organizationId,
+            );
+    const page = Math.max(1, Number(req.query.page) || 1),
+      limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+    const q = String(req.query.q || "").toLowerCase();
+    if (q)
+      rows = rows.filter((r) => JSON.stringify(r).toLowerCase().includes(q));
+    res.json({
+      total: rows.length,
+      page,
+      limit,
+      rows: rows.slice((page - 1) * limit, page * limit),
+    });
+  }),
+);
+const inventorySchema = z.object({
+  itemName: str,
+  quantity: nonnegative,
+  unit: z.enum(["kg", "grams", "liters", "packets"]),
+  minimum: nonnegative,
+  expiry: date,
+  storage: str,
+  batch: str,
+  category: str,
+});
+const eventSchema = z.object({
+  title: str,
+  date,
+  mealType: z.enum(["Breakfast", "Lunch", "Dinner"]),
+  attendees: z.coerce.number().int().min(1).max(10000),
+  notes: z.string().max(500).default(""),
+  status: z.enum(["Confirmed", "Tentative"]).default("Confirmed"),
+});
+const productionSchema = z
+  .object({
+    date,
+    itemName: str,
+    prepared: nonnegative,
+    consumed: nonnegative,
+    baseline: nonnegative.optional(),
+    manualOverride: nonnegative.optional(),
+    overrideReason: z.string().max(500).optional(),
+  })
+  .refine(
+    (x) => x.consumed <= x.prepared,
+    "Consumed cannot exceed prepared quantity. Record unmet demand separately.",
+  );
+router.post(
+  "/inventory",
+  roles("INSTITUTION"),
+  wrap(async (req, res) => {
+    const v = inventorySchema.parse(req.body);
+    res.status(201).json(
+      await mutate((s) => {
+        const row = {
+          ...v,
+          id: id(),
+          organizationId: req.actor.organizationId,
+          createdAt: now(),
+        };
+        s.inventory.unshift(row);
+        audit(s, req.actor, "Inventory item added", row.id);
+        return row;
+      }),
+    );
+  }),
+);
+router.patch(
+  "/inventory/:id",
+  roles("INSTITUTION"),
+  wrap(async (req, res) => {
+    const v = inventorySchema.partial().parse(req.body);
+    res.json(
+      await mutate((s) => {
+        const row = s.inventory.find(
+          (x) =>
+            x.id === req.params.id &&
+            x.organizationId === req.actor.organizationId,
+        );
+        if (!row) fail("Inventory item not found", 404);
+        Object.assign(row, v);
+        audit(s, req.actor, "Inventory updated", row.id);
+        return row;
+      }),
+    );
+  }),
+);
+router.post(
+  "/inventory/:id/consume",
+  roles("INSTITUTION"),
+  wrap(async (req, res) => {
+    const { quantity } = z
+      .object({ quantity: z.coerce.number().positive() })
+      .parse(req.body);
+    res.json(
+      await mutate((s) => {
+        const x = s.inventory.find(
+          (x) =>
+            x.id === req.params.id &&
+            x.organizationId === req.actor.organizationId,
+        );
+        if (!x) fail("Item not found", 404);
+        if (Number(x.quantity) < quantity) fail("Not enough stock");
+        x.quantity = Number(x.quantity) - quantity;
+        audit(s, req.actor, "Stock consumed", x.id);
+        return x;
+      }),
+    );
+  }),
+);
+router.post(
+  "/events",
+  roles("INSTITUTION"),
+  wrap(async (req, res) => {
+    const v = eventSchema.parse(req.body);
+    res.status(201).json(
+      await mutate((s) => {
+        const row = {
+          ...v,
+          id: id(),
+          organizationId: req.actor.organizationId,
+          createdAt: now(),
+        };
+        s.events.unshift(row);
+        audit(s, req.actor, "Event added", row.id);
+        return row;
+      }),
+    );
+  }),
+);
+router.post(
+  "/production",
+  roles("INSTITUTION"),
+  wrap(async (req, res) => {
+    const v = productionSchema.parse(req.body);
+    res.status(201).json(
+      await mutate((s) => {
+        const row = {
+          ...v,
+          id: id(),
+          organizationId: req.actor.organizationId,
+          createdAt: now(),
+          surplus: v.prepared - v.consumed,
+          unit: "servings",
+          source: "Manual entry",
+        };
+        s.production.push(row);
+        audit(s, req.actor, "Production recorded", row.id);
+        return row;
+      }),
+    );
+  }),
+);
+router.post(
+  "/pos/preview",
+  roles("INSTITUTION"),
+  upload.single("file"),
+  wrap(async (req, res) => {
+    if (!req.file || !req.file.originalname.toLowerCase().endsWith(".csv"))
+      fail("Choose a CSV file");
+    const p = parseCsv(req.file.buffer.toString("utf8"));
+    res.json({
+      total: p.total,
+      errors: p.errors,
+      preview: p.valid.slice(0, 8),
+    });
+  }),
+);
+router.post(
+  "/pos/import",
+  roles("INSTITUTION"),
+  upload.single("file"),
+  wrap(async (req, res) => {
+    if (!req.file || !req.file.originalname.toLowerCase().endsWith(".csv"))
+      fail("Choose a CSV file");
+    res.json(
+      await mutate((s) =>
+        importCsv(
+          s,
+          req.actor,
+          req.file!.buffer.toString("utf8"),
+          req.file!.originalname,
+        ),
+      ),
+    );
+  }),
+);
+router.get(
+  "/pos/sample",
+  roles("INSTITUTION"),
+  wrap(async (req, res) => {
+    const s = await readState();
+    const rows = s.pos.filter(
+      (x) => x.organizationId === req.actor.organizationId,
+    );
+    res
+      .type("text/csv")
+      .attachment("foodwise-synthetic-pos.csv")
+      .send(
+        "transactionId,date,itemName,quantitySold,mealType,unitPrice\n" +
+          rows
+            .map((r) =>
+              [
+                r.transactionId,
+                r.date,
+                r.itemName,
+                r.quantitySold,
+                r.mealType,
+                r.unitPrice,
+              ]
+                .map((v) => '"' + String(v).replaceAll('"', '""') + '"')
+                .join(","),
+            )
+            .join("\n"),
+      );
+  }),
+);
+router.post(
+  "/forecast",
+  roles("INSTITUTION"),
+  wrap(async (req, res) => {
+    const input = z
+      .object({
+        date,
+        mealType: z.enum(["Breakfast", "Lunch", "Dinner"]),
+        buffer: z.coerce.number().min(0).max(15),
+        override: nonnegative.optional(),
+        reason: z.string().max(500).optional(),
+      })
+      .parse(req.body);
+    const s = await readState();
+    const history = s.pos
+      .filter(
+        (p) =>
+          p.organizationId === req.actor.organizationId &&
+          p.date < input.date &&
+          p.mealType === input.mealType,
+      )
+      .map((p) => ({
+        date: p.date,
+        itemName: p.itemName,
+        quantitySold: p.quantitySold,
+        mealType: p.mealType,
+      }));
+    const events = s.events.filter(
+      (e) =>
+        e.organizationId === req.actor.organizationId &&
+        e.date === input.date &&
+        e.mealType === input.mealType,
+    );
+    const result = await aiCall("/forecast", {
+      ...input,
+      history,
+      eventAttendance: events
+        .filter((e) => e.status === "Confirmed")
+        .reduce((n, e) => n + Number(e.attendees), 0),
+    });
+    const row = {
+      id: id(),
+      organizationId: req.actor.organizationId,
+      createdAt: now(),
+      ...input,
+      ...result,
+      events: events.map((e) => e.title),
+    };
+    await mutate((st) => {
+      st.forecasts.unshift(row);
+      st.forecasts = st.forecasts.slice(0, 200);
+      audit(st, req.actor, "Forecast generated", row.id);
+    });
+    res.json(row);
+  }),
+);
+const surplusSchema = z
+  .object({
+    foodName: str,
+    category: z.enum(["Cooked meals", "Produce", "Packaged food"]),
+    dietaryType: z.enum(["Vegetarian", "Non-vegetarian", "Vegan"]),
+    quantity: z.coerce.number().positive().max(100000),
+    unit: z.enum(["servings", "kg", "grams", "liters", "packets"]),
+    servings: z.coerce.number().min(0).max(100000),
+    preparedAt: z.string().datetime(),
+    detectedAt: z.string().datetime(),
+    availableUntil: z.string().datetime(),
+    storageMethod: z.enum([
+      "Hot held",
+      "Refrigerated",
+      "Shelf stable",
+      "Room temperature",
+    ]),
+    temperature: z.coerce.number().min(-40).max(150).nullable(),
+    packagingStatus: z.enum(["Sealed", "Unsealed"]),
+    declaration: z.boolean(),
+    contaminated: z.boolean(),
+    organic: z.boolean(),
+    notes: z.string().max(1000).default(""),
+  })
+  .refine(
+    (v) =>
+      Date.parse(v.preparedAt) <= Date.parse(v.detectedAt) &&
+      Date.parse(v.detectedAt) <= Date.now() + 60000 &&
+      Date.parse(v.availableUntil) > Date.parse(v.detectedAt),
+    "Check preparation, detection and availability times.",
+  );
+router.post(
+  "/surplus",
+  roles("INSTITUTION"),
+  wrap(async (req, res) => {
+    const v = surplusSchema.parse(req.body);
+    res.status(201).json(
+      await mutate((s) => {
+        const x: Surplus = {
+          ...v,
+          id: id(),
+          organizationId: req.actor.organizationId,
+          createdAt: now(),
+          status: "available",
+          assessment: "manual review",
+          assessmentReasons: [],
+          afterHours: false,
+          timeline: [
+            { at: now(), action: "Surplus created", actor: req.actor.name },
+          ],
+        };
+        const assessment = assess(x, s.settings.minimumWindowMinutes);
+        x.assessment = assessment.status;
+        x.assessmentReasons = assessment.reasons;
+        s.surplus.unshift(x);
+        audit(s, req.actor, "Surplus created", x.id);
+        return x;
+      }),
+    );
+  }),
+);
+router.post(
+  "/demo/scenario",
+  roles("INSTITUTION"),
+  wrap(async (req, res) => {
+    if (!config.demo) fail("Demo scenario unavailable", 404);
+    const { scenario } = z
+      .object({ scenario: z.enum(["after-hours", "recovery"]) })
+      .parse(req.body);
+    res.json(
+      await mutate((s) => {
+        const x: Surplus = {
+          id: id(),
+          organizationId: req.actor.organizationId,
+          createdAt: now(),
+          foodName:
+            scenario === "after-hours"
+              ? "Late service · Veg meals"
+              : "Short-window rice surplus",
+          category: "Cooked meals",
+          dietaryType: "Vegetarian",
+          quantity: 40,
+          unit: "servings",
+          servings: 40,
+          preparedAt: new Date(Date.now() - 3600000).toISOString(),
+          detectedAt: now(),
+          availableUntil: new Date(
+            Date.now() + (scenario === "after-hours" ? 120 : 10) * 60000,
+          ).toISOString(),
+          storageMethod: "Hot held",
+          temperature: 65,
+          packagingStatus: "Sealed",
+          declaration: true,
+          organic: true,
+          contaminated: false,
+          status: "available",
+          assessment: "",
+          assessmentReasons: [],
+          afterHours: scenario === "after-hours",
+          rejectedRecipientIds:
+            scenario === "after-hours"
+              ? s.organizations
+                  .filter((o) => o.type === "RECIPIENT" && !o.afterHours)
+                  .map((o) => o.id)
+              : [],
+          timeline: [
+            {
+              at: now(),
+              actor: "Demo scenario",
+              action:
+                scenario === "after-hours"
+                  ? "Simulated regular-recipient declines; checking after-hours network"
+                  : "Short remaining window scenario",
+            },
+          ],
+        };
+        const a = assess(x, s.settings.minimumWindowMinutes);
+        x.assessment = a.status;
+        x.assessmentReasons = a.reasons;
+        s.surplus.unshift(x);
+        audit(s, req.actor, "Demo scenario created", x.id);
+        return x;
+      }),
+    );
+  }),
+);
+router.get(
+  "/surplus/:id/matches",
+  roles("INSTITUTION", "ADMIN"),
+  wrap(async (req, res) => {
+    const s = await readState();
+    const x = owned(s, req.actor, req.params.id);
+    res.json(matches(s, x));
+  }),
+);
+router.post(
+  "/surplus/:id/action",
+  wrap(async (req, res) => {
+    const input = z
+      .object({
+        action: z.string(),
+        payload: z.record(z.unknown()).default({}),
+      })
+      .parse(req.body);
+    await mutate((s) => {
+      workflow(s, req.actor, req.params.id, input.action, input.payload);
+      return true;
+    });
+    const s = await readState();
+    res.json(
+      visibleSurplus(s, req.actor).find((x) => x.id === req.params.id) || {
+        success: true,
+      },
+    );
+  }),
+);
+router.post(
+  "/surplus/:id/vision",
+  roles("INSTITUTION"),
+  upload.single("file"),
+  wrap(async (req, res) => {
+    const s = await readState();
+    owned(s, req.actor, req.params.id);
+    if (
+      !req.file ||
+      !["image/jpeg", "image/png", "image/webp"].includes(req.file.mimetype)
+    )
+      fail("Upload a JPEG, PNG or WebP image (maximum 5 MB).");
+    const result = await aiCall("/vision", {
+      image: req.file.buffer.toString("base64"),
+    });
+    await mutate((st) => {
+      const x = owned(st, req.actor, req.params.id);
+      x.cv = result;
+      audit(st, req.actor, "Visual inference completed", x.id);
+    });
+    res.json(result);
+  }),
+);
+router.patch(
+  "/profile",
+  wrap(async (req, res) => {
+    const v = z
+      .object({
+        name: str.optional(),
+        address: str.optional(),
+        phone: z.string().max(30).optional(),
+        available: z.boolean().optional(),
+        capacity: nonnegative.optional(),
+        requirement: nonnegative.optional(),
+        pickup: z.boolean().optional(),
+        refrigeration: z.boolean().optional(),
+        dietary: z
+          .array(z.enum(["Vegetarian", "Non-vegetarian", "Vegan"]))
+          .min(1)
+          .optional(),
+        categories: z
+          .array(z.enum(["Cooked meals", "Produce", "Packaged food"]))
+          .min(1)
+          .optional(),
+        openHour: z.coerce.number().min(0).max(23).optional(),
+        closeHour: z.coerce.number().min(0).max(24).optional(),
+        buffer: z.coerce.number().min(0).max(15).optional(),
+        vehicle: str.optional(),
+      })
+      .parse(req.body);
+    res.json(
+      await mutate((s) => {
+        const org = s.organizations.find(
+          (o) => o.id === req.actor.organizationId,
+        )!;
+        Object.assign(org, v);
+        audit(s, req.actor, "Profile updated", org.id);
+        return org;
+      }),
+    );
+  }),
+);
+router.patch(
+  "/organizations/:id",
+  roles("ADMIN"),
+  wrap(async (req, res) => {
+    const v = z
+      .object({
+        verified: z.boolean().optional(),
+        active: z.boolean().optional(),
+        subtype: z.enum(["Hotel / Restaurant", "Factory"]).optional(),
+      })
+      .parse(req.body);
+    res.json(
+      await mutate((s) => {
+        const org = s.organizations.find((o) => o.id === req.params.id);
+        if (!org) fail("Organization not found", 404);
+        if (org.id === req.actor.organizationId)
+          fail("Cannot deactivate your own admin organization");
+        if (v.subtype && org.type !== "INSTITUTION")
+          fail("Workspace type applies only to institutions");
+        Object.assign(org, v);
+        audit(s, req.actor, "Organization status updated", org.id);
+        return org;
+      }),
+    );
+  }),
+);
+router.patch(
+  "/settings",
+  roles("ADMIN"),
+  wrap(async (req, res) => {
+    const v = z
+      .object({
+        kgPerServing: z.coerce.number().positive().max(2),
+        co2PerKg: z.coerce.number().min(0).max(50),
+        costPerKg: z.coerce.number().min(0).max(10000),
+        minimumWindowMinutes: z.coerce.number().min(15).max(240),
+        pickupDelayMinutes: z.coerce.number().min(5).max(120),
+      })
+      .parse(req.body);
+    res.json(
+      await mutate((s) => {
+        s.settings = v;
+        audit(
+          s,
+          req.actor,
+          "Impact and handling assumptions updated",
+          "settings",
+        );
+        return v;
+      }),
+    );
+  }),
+);
+router.patch(
+  "/notifications/:id",
+  wrap(async (req, res) => {
+    await mutate((s) => {
+      const n = s.notifications.find(
+        (n) =>
+          n.id === req.params.id &&
+          n.organizationId === req.actor.organizationId,
+      );
+      if (!n) fail("Notification not found", 404);
+      n.read = true;
+    });
+    res.json({ success: true });
+  }),
+);
+router.patch(
+  "/recovery/:id",
+  roles("INSTITUTION", "ADMIN"),
+  wrap(async (req, res) => {
+    const { status } = z
+      .object({ status: z.enum(["handed over", "completed"]) })
+      .parse(req.body);
+    res.json(
+      await mutate((s) => {
+        const x = s.recovery.find(
+          (x) =>
+            x.id === req.params.id &&
+            (req.actor.role === "ADMIN" ||
+              x.organizationId === req.actor.organizationId),
+        );
+        if (!x) fail("Recovery record not found", 404);
+        if (!(
+          (x.status === "scheduled" && status === "handed over") ||
+          (x.status === "handed over" && status === "completed")
+        ))
+          fail("Invalid recovery transition", 409);
+        x.status = status;
+        audit(s, req.actor, "Recovery " + status, x.id);
+        return x;
+      }),
+    );
+  }),
+);
+router.get(
+  "/sensors",
+  roles("INSTITUTION", "ADMIN"),
+  wrap(async (_req, res) => {
+    const t = Date.now() / 60000;
+    const specs = [
+      ["COLD-01", "Cold storage", "Temperature", "°C", 4, 1.8, 5],
+      ["DRY-02", "Dry store", "Humidity", "%", 48, 9, 60],
+      ["SCALE-03", "Preparation area", "Storage weight", "kg", 72, 5, 100],
+      ["ENERGY-04", "Cold storage", "Energy", "kWh", 12, 2, 15],
+    ];
+    res.json({
+      mode: "Simulated IoT Data",
+      sensors: specs.map(
+        ([id, location, label, unit, base, range, limit], i) => {
+          const value = Number(
+            (Number(base) + Math.sin(t / 5 + i) * Number(range)).toFixed(1),
+          );
+          return {
+            id,
+            location,
+            label,
+            unit,
+            value,
+            limit,
+            status: value > Number(limit) ? "attention" : "within demo range",
+            timestamp: now(),
+            history: Array.from({ length: 20 }, (_, j) => ({
+              time: j,
+              value: Number(
+                (
+                  Number(base) +
+                  Math.sin((t - 20 + j) / 5 + i) * Number(range)
+                ).toFixed(1),
+              ),
+            })),
+          };
+        },
+      ),
+    });
+  }),
+);
+router.get(
+  "/status",
+  roles("ADMIN"),
+  wrap(async (_req, res) => {
+    let ai: unknown = { status: "Offline" };
+    try {
+      const r = await fetch(config.ai + "/health", {
+        signal: AbortSignal.timeout(4000),
+      });
+      ai = await r.json();
+    } catch {}
+    res.json({
+      api: "Healthy",
+      database: databaseStatus(),
+      ai,
+      pos: "Synthetic CSV",
+      iot: "Simulation",
+      routing: "Simulation",
+      whatsapp: "Not connected — in-app notifications active",
+      tally: "Future integration",
+      logistics: "Internal prototype workflow",
+    });
+  }),
+);
+router.get(
+  "/analytics",
+  wrap(async (req, res) => {
+    const s = await readState();
+    res.json(
+      analytics(
+        s,
+        req.actor,
+        String(req.query.from || ""),
+        String(req.query.to || "9999"),
+      ),
+    );
+  }),
+);
+router.get(
+  "/analytics.csv",
+  wrap(async (req, res) => {
+    const s = await readState();
+    const a = analytics(s, req.actor);
+    res
+      .type("text/csv")
+      .attachment("foodwise-impact.csv")
+      .send(
+        "metric,value,unit\n" +
+          [
+            ["prevented", a.prevented, "estimated kg"],
+            ["redistributed", a.redistributed, "estimated kg"],
+            ["recovered", a.recovered, "kg"],
+            ["disposed", a.disposed, "kg"],
+            ["meals", a.meals, "estimated equivalents"],
+            ["co2", a.estimatedCo2, "estimated kg CO2e"],
+          ]
+            .map((r) => r.join(","))
+            .join("\n"),
+      );
+  }),
+);
+router.get(
+  "/reports.pdf",
+  roles("ADMIN", "INSTITUTION"),
+  wrap(async (req, res) => {
+    const from = date.parse(req.query.from),
+      to = date.parse(req.query.to);
+    if (from > to) fail("Start date must be before end date");
+    const s = await readState();
+    const institutionId =
+      req.actor.role === "ADMIN" ? String(req.query.institutionId || "") : "";
+    if (
+      institutionId &&
+      !s.organizations.some(
+        (o) => o.id === institutionId && o.type === "INSTITUTION",
+      )
+    )
+      fail("Institution not found", 404);
+    const reportActor = institutionId
+      ? {
+          ...req.actor,
+          role: "INSTITUTION" as const,
+          organizationId: institutionId,
+        }
+      : req.actor;
+    const a = analytics(s, reportActor, from, to);
+    const org = s.organizations.find(
+      (o) => o.id === reportActor.organizationId,
+    )!;
+    const report = {
+      id: id(),
+      organizationId: req.actor.organizationId,
+      createdAt: now(),
+      from,
+      to,
+      institutionId,
+      title: "Sustainability report",
+    };
+    await mutate((st) => {
+      st.reports.unshift(report);
+      audit(st, req.actor, "Sustainability report generated", report.id);
+    });
+    res.type("application/pdf").attachment(`FoodWise-${from}-${to}.pdf`);
+    const pdf = new PDFDocument({ size: "A4", margin: 48 });
+    pdf.font("assets/DejaVuSans.ttf");
+    pdf.pipe(res);
+    pdf.rect(0, 0, 595, 150).fill("#164c3b");
+    pdf.fillColor("#d5ef9d").fontSize(30).text("FoodWise", 48, 38);
+    pdf.fillColor("white").fontSize(10).text("Making Every Meal Count", 48, 73);
+    pdf.fontSize(16).text("Sustainability & operational impact", 48, 91);
+    pdf.fontSize(10).text(`${org.name}  |  ${from} to ${to}`, 48, 112);
+    pdf
+      .fillColor("#173e32")
+      .fontSize(12)
+      .text("PROTOTYPE REPORT · ESTIMATED METRICS", 48, 177);
+    let y = 220;
+    for (const [label, value, unit] of [
+      ["Food Waste Prevented", a.prevented, "estimated kg"],
+      ["Food redistributed", a.redistributed, "estimated kg"],
+      ["Organic material recovered", a.recovered, "kg / serving conversion"],
+      ["Final disposal", a.disposed, "kg / serving conversion"],
+      ["Meal equivalents", a.meals, "estimated meals"],
+      ["Cost avoided", a.estimatedCost, "INR (estimated)"],
+      ["Emissions impact", a.estimatedCo2, "kg CO2e (estimated)"],
+      ["Completed redistributions", a.completed, "records"],
+    ]) {
+      pdf
+        .fillColor("#f1f5f2")
+        .rect(48, y - 7, 499, 33)
+        .fill();
+      pdf
+        .fillColor("#173e32")
+        .fontSize(11)
+        .text(String(label), 60, y)
+        .text(`${Number(value).toLocaleString("en-IN")} ${unit}`, 305, y, {
+          width: 230,
+          align: "right",
+        });
+      y += 41;
+    }
+    pdf.fontSize(12).text("Methodology and limitations", 48, y + 12);
+    pdf
+      .fillColor("#53635c")
+      .fontSize(10)
+      .text(
+        `Record-derived quantities are converted only where a mass or serving measure is available. Assumptions: ${s.settings.kgPerServing} kg/serving; ${s.settings.co2PerKg} kg CO2e/kg prevented or redistributed; INR ${s.settings.costPerKg}/kg prevented. Prevention compares recorded baseline preparation with actual preparation, not a proven causal reduction. Synthetic history is demonstration data. Recovery is separate from redistribution; no recovery emissions credit is claimed. These configurable factors are illustrative and are not audited ESG results.`,
+        48,
+        y + 38,
+        { width: 499, lineGap: 3 },
+      );
+    pdf
+      .fontSize(9)
+      .text("Team Anvay · Connected to Create · SIH 26234", 48, 780);
+    pdf.end();
+  }),
+);
 export default router;

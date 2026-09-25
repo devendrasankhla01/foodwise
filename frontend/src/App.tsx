@@ -1,41 +1,3118 @@
-import React,{useState,useEffect,createContext,useContext} from 'react';
-import {BrowserRouter,Routes,Route,Navigate,NavLink,useNavigate,useLocation} from 'react-router-dom';
-import {QueryClient,QueryClientProvider,useQuery,useQueryClient} from '@tanstack/react-query';
-import {Leaf,LayoutDashboard,ChartNoAxesCombined,Database,Utensils,Package,Thermometer,HeartHandshake,Truck,Moon,Recycle,ChartPie,FileText,Bell,Settings,LogOut,Menu,ArrowUpRight,ArrowRight,Plus,CalendarDays,ChevronDown,ShieldCheck,Users,Activity,History,Info,Check,Upload,Download,Sprout,TrendingUp,Scale,Factory,X,Loader2} from 'lucide-react';
-import {AreaChart,Area,CartesianGrid,XAxis,YAxis,Tooltip,ResponsiveContainer,BarChart,Bar,Legend} from 'recharts';
-import {api,post,patch,download} from './api';
-import {Button,Badge,Choice,Empty,Loading,Modal,FormModal,Table,Panel,number,time,day,localDate,type DataRow,type Field} from './components';
-import './styles.css';
-const queryClient=new QueryClient({defaultOptions:{queries:{retry:1,staleTime:10000}}});
-const Auth=createContext<{user:DataRow|null;setUser:(u:DataRow|null)=>void}>({user:null,setUser:()=>{}});
-const Workspace=createContext<{data:DataRow;refresh:()=>Promise<void>;message:(s:string)=>void}>({data:{},refresh:async()=>{},message:()=>{}});
-const roleName:Record<string,string>={INSTITUTION:'Institution',RECIPIENT:'Recipient',LOGISTICS:'Logistics partner',ADMIN:'Admin'};
-const navs:Record<string,[string,string,React.ElementType][]>={INSTITUTION:[['/','Overview',LayoutDashboard],['/forecast','Demand forecast',ChartNoAxesCombined],['/pos','POS data',Database],['/production','Production planning',Utensils],['/inventory','Inventory',Package],['/sensors','IoT monitor',Thermometer],['/surplus','Surplus food',HeartHandshake],['/redistribution','Redistribution',Truck],['/after-hours','After-hours network',Moon],['/recovery','Recovery',Recycle],['/processing','Processing insights',Factory],['/analytics','Analytics',ChartPie],['/reports','ESG reports',FileText]],RECIPIENT:[['/','Overview',LayoutDashboard],['/requirements','Requirements',Settings],['/offers','Food offers',HeartHandshake],['/requests','Active requests',Package],['/deliveries','Deliveries',Truck],['/history','Received history',History],['/analytics','Impact',ChartPie]],LOGISTICS:[['/','Overview',LayoutDashboard],['/deliveries','Delivery requests',Truck],['/history','Delivery history',History],['/analytics','Impact',ChartPie]],ADMIN:[['/','Network overview',LayoutDashboard],['/institutions','Institutions',Utensils],['/recipients','Recipients',Users],['/logistics','Logistics partners',Truck],['/redistribution','Redistributions',HeartHandshake],['/after-hours','After-hours network',Moon],['/recovery','Recovery',Recycle],['/analytics','Network analytics',ChartPie],['/reports','ESG reports',FileText],['/status','Integration status',Activity],['/audit','Audit trail',History]]};
-function Brand(){return <div className="brand"><span className="brand-icon"><Leaf size={23} strokeWidth={1.7}/></span><span>foodwise<span className="brand-period">.</span></span></div>}
-function App(){const [user,setUser]=useState<DataRow|null>(null);const [init,setInit]=useState(true);useEffect(()=>{if(sessionStorage.getItem('foodwise-token'))api('/auth/me').then(setUser).catch(()=>sessionStorage.removeItem('foodwise-token')).finally(()=>setInit(false));else setInit(false);const expire=()=>setUser(null);window.addEventListener('session-expired',expire);return()=>window.removeEventListener('session-expired',expire)},[]);return <Auth.Provider value={{user,setUser}}>{init?<Loading/>:user?<Shell/>:<Login/>}</Auth.Provider>}
-function Login(){const {setUser}=useContext(Auth);const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [busy,setBusy]=useState('');const [error,setError]=useState('');const nav=useNavigate();const settings=useQuery({queryKey:['auth-config'],queryFn:()=>api('/auth/config')});async function login(e=email,p=password){setError('');setBusy(e);try{const r=await post('/auth/login',{email:e,password:p});sessionStorage.setItem('foodwise-token',r.token);queryClient.clear();setUser(r.user);nav('/');}catch(e){setError((e as Error).message)}finally{setBusy('')}}return <div className="login-page"><section className="login-story"><Brand/><div className="story-main"><span className="eyebrow">A BETTER WAY TO FEED THE FUTURE</span><h1>Less waste.<br/>More possibility.</h1><p>Thoughtful planning. Responsible redistribution.<br/>One connected food ecosystem.</p><div className="story-flow">{[[ChartNoAxesCombined,'Predict'],[Sprout,'Prevent'],[HeartHandshake,'Redistribute'],[Recycle,'Recover']].map(([Icon,label])=>{const I=Icon as React.ElementType;return <div key={String(label)}><I size={23}/><span>{String(label)}</span></div>})}</div></div><div className="login-bottom">TEAM ANVAY <span>Connected to Create</span></div></section><section className="login-form"><div><span className="eyebrow">WELCOME TO FOODWISE</span><h2>Your kitchen. A little wiser.</h2><p>Sign in to your workspace.</p><form onSubmit={e=>{e.preventDefault();void login()}}><label>Email address<input type="email" required autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@organization.com"/></label><label>Password<input type="password" required autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter your password"/></label>{error&&<div className="error" role="alert">{error}</div>}<Button type="submit" disabled={!!busy}>{busy?<Loader2 size={17} className="spin"/>:<>Sign in <ArrowRight size={17}/></>}</Button></form>{settings.data?.demo&&<><div className="divider"><span>EXPLORE THE DEMO</span></div><div className="demo-roles">{[['institution',Utensils],['recipient',HeartHandshake],['logistics',Truck],['admin',ShieldCheck]].map(([r,I])=>{const Icon=I as React.ElementType;return <button key={String(r)} disabled={!!busy} onClick={()=>login(`${r}@foodwise.demo`,'FoodWise@2026')}><Icon size={20}/><span>{roleName[String(r).toUpperCase()]}</span><ArrowUpRight size={15}/></button>})}</div><button className="text-link night-login" onClick={()=>login('night@foodwise.demo','FoodWise@2026')}>Open after-hours recipient demo <Moon size={14}/></button><p className="fineprint">Demo accounts use synthetic operational data. Simulated features are labeled throughout the workspace.</p></>}</div><footer>FoodWise · SIH 26234 <span>Built around prevention.</span></footer></section></div>}
-function Shell(){const {user,setUser}=useContext(Auth);const q=useQuery({queryKey:['workspace',user!.id],queryFn:()=>api('/workspace'),refetchInterval:15000});const [mobile,setMobile]=useState(false);const [toast,setToast]=useState('');const nav=useNavigate();const location=useLocation();useEffect(()=>{setMobile(false)},[location.pathname]);useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(''),5000);return()=>clearTimeout(t)}},[toast]);const refresh=async()=>{await q.refetch()};const links=navs[user!.role];const allowed=[...links.map(x=>x[0]),'/notifications','/settings','/about'];const d=q.data;const logout=()=>{sessionStorage.removeItem('foodwise-token');queryClient.clear();setUser(null);nav('/')};return <Workspace.Provider value={{data:d||{},refresh,message:setToast}}><div className="app-shell"><aside className={'sidebar '+(mobile?'is-open':'')}><Brand/><button className="org-switch" onClick={()=>nav('/settings')}><span className="org-avatar">{user!.role==='ADMIN'?'FW':'GV'}</span><span><strong>{d?.organization?.name||'Workspace'}</strong><small>{roleName[user!.role]}</small></span><ChevronDown size={15}/></button><div className="nav-label">WORKSPACE</div><nav>{links.map(([path,label,Icon])=><NavLink key={path} to={path} end className={({isActive})=>isActive?'active':''}><Icon size={18}/><span>{label}</span>{path==='/surplus'&&d?.analytics?.active>0&&<em>{d.analytics.active}</em>}</NavLink>)}</nav><div className="sidebar-bottom"><div className="philosophy"><Sprout size={19}/><div><strong>Every meal matters.</strong><small>Prevention comes first.</small></div></div><NavLink to="/settings"><Settings size={18}/> Settings & profile</NavLink><NavLink to="/about"><Info size={18}/> About FoodWise</NavLink><button onClick={logout}><LogOut size={18}/> Sign out</button><div className="team-credit">BY TEAM ANVAY <span>↗</span></div></div></aside>{mobile&&<button aria-label="Close navigation" className="mobile-shade" onClick={()=>setMobile(false)}/>}<div className="workspace"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-toggle" aria-label="Open navigation" onClick={()=>setMobile(!mobile)}><Menu size={22}/></button><span>Workspace</span><span>/</span><strong>{links.find(l=>l[0]===location.pathname)?.[1]||location.pathname.slice(1).replace('-',' ')}</strong></div><div className="topbar-right"><span className="demo-tag">{d?.mode||'Connecting'}</span><button className="notification-button icon-button" aria-label="Notifications" onClick={()=>nav('/notifications')}><Bell size={19}/>{d?.notifications?.some((n:DataRow)=>!n.read)&&<i/>}</button><div className="avatar" title={user!.name}>{user!.name.slice(0,2).toUpperCase()}</div></div></header><main>{q.isPending?<Loading/>:q.error?<div className="error-panel"><h2>Workspace could not load</h2><p>{(q.error as Error).message}</p><Button onClick={()=>void refresh()}>Try again</Button></div>:!allowed.includes(location.pathname)?<Navigate to="/" replace/>:<Routes><Route path="/" element={<Overview/>}/><Route path="/forecast" element={<Forecast/>}/><Route path="/pos" element={<PosPage/>}/><Route path="/production" element={<Production/>}/><Route path="/inventory" element={<Inventory/>}/><Route path="/sensors" element={<Sensors/>}/><Route path="/processing" element={<Processing/>}/>{['surplus','redistribution','after-hours','offers','requests','deliveries','history'].map(p=><Route key={p} path={'/'+p} element={<SurplusPage mode={p}/>}/>)}<Route path="/recovery" element={<Recovery/>}/>{['institutions','recipients','logistics'].map(p=><Route key={p} path={'/'+p} element={<Organizations kind={p}/>}/>)}<Route path="/analytics" element={<Analytics/>}/><Route path="/reports" element={<Reports/>}/><Route path="/notifications" element={<Notifications/>}/><Route path="/settings" element={<SettingsPage/>}/><Route path="/requirements" element={<SettingsPage requirements/>}/><Route path="/status" element={<StatusPage/>}/><Route path="/audit" element={<Audit/>}/><Route path="/about" element={<About/>}/></Routes>}</main><footer className="workspace-footer"><span>FoodWise <span>·</span> Prevent → Redistribute → Recover → Dispose</span><span>{d?.database}</span></footer></div>{toast&&<div className="toast" role="status"><Check size={18}/>{toast}<button aria-label="Dismiss" onClick={()=>setToast('')}><X size={15}/></button></div>}</div></Workspace.Provider>}
-function PageHead({eyebrow='KITCHEN INTELLIGENCE',title,sub,actions}:{eyebrow?:string;title:string;sub:string;actions?:React.ReactNode}){return <div className="page-head"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{sub}</p></div><div className="page-actions">{actions}</div></div>}
-function Kpis(){const {data:d}=useContext(Workspace);const {user}=useContext(Auth);const a=d.analytics;const entries=user!.role==='LOGISTICS'?[['Completed deliveries',a.completed,'Recorded handovers',Truck],['Food transported',a.redistributed+' kg','Serving-to-mass estimate',Package],['Active requests',a.active,'Across your delivery queue',Activity],['After-hours deliveries',a.afterHours,'Completed records',Moon]]:user!.role==='RECIPIENT'?[['Food received',a.redistributed+' kg','Serving-to-mass estimate',Package],['Meal equivalents',a.meals,'Estimated from received food',Utensils],['Active requests',a.active,'Offers and ongoing collections',Activity],['Completed collections',a.completed,'Confirmed receipts',HeartHandshake]]:[['Waste prevented',a.prevented+' kg','Estimated vs. recorded baseline',Sprout],['Food redistributed',a.redistributed+' kg','From completed records',HeartHandshake],['Meal equivalents',a.meals,'Estimated · '+a.methodology.kgPerServing+' kg per serving',Utensils],['CO₂e impact',a.estimatedCo2+' kg','Estimated · illustrative factor',Leaf]];return <div className="kpi-grid">{entries.map(([label,value,caption,I],i)=>{const Icon=I as React.ElementType;return <div className="kpi" key={String(label)}><div><span>{String(label)}</span><Icon size={18}/></div><strong>{String(value)}</strong><small><span className={'metric-marker marker-'+i}/>{String(caption)}</small></div>})}</div>}
-function Trend({impact=false}:{impact?:boolean}){const {data:d}=useContext(Workspace);return <div className="chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={d.analytics.series} margin={{top:15,right:10,left:-20,bottom:5}}><defs><linearGradient id="fillGreen" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4d977c" stopOpacity={.19}/><stop offset="100%" stopColor="#4d977c" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 4" vertical={false} stroke="#e8eeea"/><XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={36} tick={{fontSize:12,fill:'#849087'}}/><YAxis tickLine={false} axisLine={false} tick={{fontSize:12,fill:'#849087'}}/><Tooltip contentStyle={{borderRadius:10,border:'1px solid #e3e9e5'}}/>{!impact&&<Area type="monotone" dataKey="prepared" name="Prepared" stroke="#b8c5ba" fill="none" strokeWidth={2} strokeDasharray="5 5"/>}<Area type="monotone" dataKey={impact?'redistributed':'consumed'} name={impact?'Redistributed (estimated kg)':'Consumed'} stroke="#27785b" strokeWidth={2.5} fill="url(#fillGreen)"/></AreaChart></ResponsiveContainer></div>}
-function Overview(){const {data:d}=useContext(Workspace);const {user}=useContext(Auth);const nav=useNavigate();const inst=user!.role==='INSTITUTION';const admin=user!.role==='ADMIN';const [add,setAdd]=useState(false);const alerts=d.inventory.filter((r:DataRow)=>Number(r.quantity)<=Number(r.minimum)||r.expiry<=day(3));return <><PageHead title={inst?'A good day to waste less.':admin?'A connected view. A shared impact.':user!.role==='RECIPIENT'?'Good food, going further.':'Make the last mile count.'} sub={inst?`Here’s what’s happening at ${d.organization.name}.`:'Your operations and impact, in one place.'} actions={<><span className="date-pill"><CalendarDays size={16}/>{new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</span>{inst&&<Button onClick={()=>setAdd(true)}><Plus size={17}/> Add surplus</Button>}</>}/><Kpis/>{inst&&<div className="insight-banner"><span className="insight-icon"><ChartNoAxesCombined size={27}/></span><div><span className="eyebrow">PLAN AHEAD, WASTE LESS</span><h2>Tomorrow starts with a smarter forecast.</h2><p>{number(d.posCount)} synthetic POS records ready. Turn demand patterns into a practical preparation plan.</p></div><Button kind="light" onClick={()=>nav('/forecast')}>View forecast <ArrowUpRight size={17}/></Button></div>}<div className="dashboard-grid"><Panel title={inst||admin?'Preparation & consumption':'Redistribution over time'} sub="Last 14 days · record-derived demo history" action={<div className="chart-legend"><span><i/>Consumed</span>{(inst||admin)&&<span><i/>Prepared</span>}</div>}><Trend impact={!inst&&!admin}/></Panel><Panel title={inst?'Needs your attention':'Network at a glance'} sub={inst?'Small actions. Meaningful difference.':'Verified organizations and active operations'}>{inst?<div className="attention-list">{alerts.slice(0,3).map((r:DataRow)=><button key={r.id} onClick={()=>nav('/inventory')}><span className="attention-icon"><Package size={19}/></span><div><strong>{r.itemName}</strong><p>{r.expiry<day()?'Expired stock':r.expiry<=day(3)?'Approaching expiry':'Below minimum stock'} · {r.quantity} {r.unit}</p></div><ArrowUpRight size={17}/></button>)}{!alerts.length&&<Empty title="All clear" text="No inventory alerts right now."/>}<button className="view-all" onClick={()=>nav('/inventory')}>View inventory <ArrowRight size={16}/></button></div>:<div className="network-counts">{[['Institutions','INSTITUTION'],['Recipient organizations','RECIPIENT'],['Logistics partners','LOGISTICS']].map(([label,role])=><div key={role}><span>{label}</span><strong>{d.organizations.filter((o:DataRow)=>o.type===role).length}</strong></div>)}<div><span>Active redistributions</span><strong>{d.analytics.active}</strong></div><p className="muted">Availability and verification influence each match.</p></div>}</Panel></div><div className="dashboard-grid lower"><Panel title="Recent food journeys" sub="Every handover has a story. Every step has a record." action={<Button kind="text" onClick={()=>nav(inst||admin?'/redistribution':'/history')}>View all <ArrowUpRight size={15}/></Button>}><Table search={false} rows={d.surplus.slice(0,5)} columns={[{key:'foodName',label:'Food',render:r=><div className="food-cell"><span><Utensils size={17}/></span><div><strong>{r.foodName}</strong><small>{time(r.createdAt)}</small></div></div>},{key:'quantity',label:'Quantity',render:r=>`${r.quantity} ${r.unit}`},{key:'status',label:'Status',render:r=><Badge>{r.status}</Badge>}]}/></Panel><section className="purpose-card"><span className="purpose-icon"><Moon size={25}/></span><span className="eyebrow">BEYOND CLOSING TIME</span><h2>Good food shouldn’t<br/>wait until morning.</h2><p>The After-Hours Surplus Redistribution Network connects available food with verified late-hour recipients.</p><Button kind="secondary" onClick={()=>nav(inst||admin?'/after-hours':'/deliveries')}>Explore the network <ArrowUpRight size={16}/></Button></section></div>{add&&<SurplusForm onClose={()=>setAdd(false)}/>}</>}
-function Forecast(){const {data:d,refresh,message}=useContext(Workspace);const [date,setDate]=useState(day(1));const [meal,setMeal]=useState('Lunch');const [buffer,setBuffer]=useState(d.organization.buffer||4);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [event,setEvent]=useState(false);const [result,setResult]=useState<DataRow|null>(d.forecasts[0]||null);const [override,setOverride]=useState(false);async function run(extra:DataRow={}){setBusy(true);setError('');try{const r=await post('/forecast',{date,mealType:meal,buffer,...extra});setResult(r);await refresh();message('Forecast generated from your historical records.');}catch(e){setError((e as Error).message)}finally{setBusy(false)}}return <><PageHead title="Prepare with confidence." sub="Item-wise demand, informed by history and the context you know." actions={<Button kind="secondary" onClick={()=>setEvent(true)}><Plus size={17}/> Add event</Button>}/><div className="forecast-controls panel"><label>Forecast date<input type="date" value={date} onChange={e=>setDate(e.target.value)}/></label><label>Meal period<Choice value={meal} onChange={setMeal} options={['Breakfast','Lunch','Dinner']}/></label><label>Preparation buffer (%)<input type="number" min="0" max="15" value={buffer} onChange={e=>setBuffer(Number(e.target.value))}/></label><Button disabled={busy} onClick={()=>void run()}>{busy?<Loader2 className="spin" size={17}/>:<ChartNoAxesCombined size={17}/>} {busy?'Generating forecast…':'Generate forecast'}</Button></div>{error&&<div className="error" role="alert">{error}</div>}{result?<><div className="forecast-summary"><div><span>Predicted demand</span><strong>{number(result.totalPredicted)} <small>servings</small></strong></div><div><span>Recommended preparation</span><strong>{number(result.totalRecommended)} <small>servings</small></strong></div><div><span>Event context</span><strong>+{number(result.eventAttendance)} <small>guests</small></strong></div><div><Badge>Prototype evaluation</Badge><p>{result.date} · {result.mealType}<br/>{result.modelVersion}</p></div></div><Panel title="Your item-wise preparation plan" sub="Predictions are estimates. Review event assumptions before preparing." action={<Button kind="text" onClick={()=>setOverride(true)}>Manual override <Settings size={15}/></Button>}><Table rows={result.items} columns={[{key:'itemName',label:'Menu item',render:r=><strong>{r.itemName}</strong>},{key:'historicalAverage',label:'Recent average'},{key:'basePrediction',label:'Base forecast'},{key:'eventAllocation',label:'Event allocation',render:r=>`+${r.eventAllocation}`},{key:'predictedQuantity',label:'Predicted'},{key:'recommendedQuantity',label:'Prepare',render:r=><strong className="green-text">{r.recommendedQuantity} servings</strong>},{key:'manualOverride',label:'Override'}]}/></Panel><div className="two-columns"><Panel title="Why this recommendation?" sub="Useful context, without promises."><div className="padded"><p>{result.items[0]?.explanation}</p><div className="note"><Info size={18}/><span>Confirmed event attendance is allocated across items using their historical demand share. It is a planning adjustment, not a learned prediction of unexpected visitors.</span></div><p className="muted">{result.events?.length?result.events.join(' · '):'No confirmed events for this date and meal.'}</p></div></Panel><Panel title="Model evaluation" sub="Chronological holdout · synthetic prototype history"><Table search={false} rows={result.evaluation} columns={[{key:'itemName',label:'Item'},{key:'modelMae',label:'Model MAE'},{key:'baselineMae',label:'Baseline MAE'}]}/><p className="panel-note">MAE = average absolute error in servings. The lower-error model is selected per item; this is not production accuracy.</p></Panel></div></>:<Panel title="Your next preparation plan"><Empty title="Turn history into a plan" text="Generate a forecast using your institution’s POS history and confirmed bookings."/></Panel>}<Panel title="Event & booking context" sub="Unexpected visits need human context."><Table rows={d.events} columns={[{key:'title',label:'Event'},{key:'date',label:'Date'},{key:'mealType',label:'Meal'},{key:'attendees',label:'Expected guests'},{key:'status',label:'Status'}]}/></Panel>{event&&<EventForm onClose={()=>setEvent(false)}/>} {override&&<FormModal title="Manual preparation override" onClose={()=>setOverride(false)} fields={[{key:'override',label:'Total servings to prepare',type:'number',value:result?.totalRecommended},{key:'reason',label:'Reason for override',type:'textarea'}]} onSave={async v=>{await run(v)}}/>}</>}
-function EventForm({onClose}:{onClose:()=>void}){const {refresh}=useContext(Workspace);return <FormModal title="Add event or booking" onClose={onClose} fields={[{key:'title',label:'Event title'},{key:'date',label:'Date',type:'date',value:day(1)},{key:'mealType',label:'Meal period',options:['Lunch','Breakfast','Dinner']},{key:'attendees',label:'Expected attendees',type:'number',value:80,min:1},{key:'status',label:'Booking status',options:['Confirmed','Tentative']},{key:'notes',label:'Notes',type:'textarea',required:false}]} onSave={async v=>{await post('/events',v);await refresh()}}/>}
-function PosPage(){const {data:d,refresh,message}=useContext(Workspace);const [file,setFile]=useState<File|null>(null);const [preview,setPreview]=useState<DataRow|null>(null);const [summary,setSummary]=useState<DataRow|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);async function send(path:string,f:File){const form=new FormData();form.append('file',f);return api(path,{method:'POST',body:form});}return <><PageHead title="Better data. Better decisions." sub={`${number(d.posCount)} POS records · Synthetic daily item aggregates, not customer footfall.`} actions={<Button kind="secondary" onClick={()=>download('/pos/sample','foodwise-synthetic-pos.csv').catch(e=>message(e.message))}><Download size={16}/> Download sample</Button>}/><div className="upload-card"><div className="upload-icon"><Upload size={27}/></div><div><h2>Bring your POS history into FoodWise</h2><p>CSV · maximum 5 MB · up to 10,000 rows per import</p><small>Required: transactionId, date, itemName, quantitySold, mealType</small></div><label className="button secondary file-button">{busy?'Reading…':'Choose CSV'}<input type="file" accept=".csv" disabled={busy} onChange={async e=>{const f=e.target.files?.[0];if(!f)return;setBusy(true);setError('');setSummary(null);try{setFile(f);setPreview(await send('/pos/preview',f));}catch(e){setError((e as Error).message)}finally{setBusy(false);e.target.value=''}}}/></label></div>{error&&<div className="error">{error}</div>}{summary&&<div className="note success"><Check size={20}/><div><strong>Import complete</strong><p>{summary.imported} imported · {summary.duplicates} duplicates skipped · {summary.errors.length} invalid rows</p></div></div>}{preview&&<Panel title={`Preview · ${file?.name}`} sub={`${preview.total} rows · ${preview.errors.length} invalid rows`} action={<Button disabled={busy} onClick={async()=>{if(!file)return;setBusy(true);try{setSummary(await send('/pos/import',file));setPreview(null);await refresh();}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}>Import valid rows</Button>}><Table rows={preview.preview} columns={[{key:'date',label:'Date'},{key:'itemName',label:'Item'},{key:'quantitySold',label:'Sold'},{key:'mealType',label:'Meal'}]}/>{preview.errors.length>0&&<p className="error">{preview.errors.slice(0,5).map((r:DataRow)=>`Row ${r.row}: ${r.message}`).join(' · ')}</p>}</Panel>}<Panel title="Recent POS records" sub="Latest 50 records. Historical data remains available to the forecast service."><Table rows={d.pos} columns={[{key:'transactionId',label:'Transaction reference'},{key:'date',label:'Date'},{key:'itemName',label:'Menu item'},{key:'mealType',label:'Meal'},{key:'quantitySold',label:'Quantity sold'},{key:'unitPrice',label:'Unit price',render:r=>'₹'+r.unitPrice}]}/></Panel><Panel title="Import history"><Table rows={d.imports} columns={[{key:'filename',label:'File'},{key:'createdAt',label:'Imported',render:r=>time(r.createdAt)},{key:'imported',label:'Imported'},{key:'duplicates',label:'Duplicates'},{key:'errors',label:'Errors',render:r=>r.errors.length}]}/></Panel></>}
-function Production(){const {data:d,refresh}=useContext(Workspace);const [add,setAdd]=useState(false);return <><PageHead title="From plan to plate." sub="Record preparation and consumption separately from sales." actions={<Button onClick={()=>setAdd(true)}><Plus size={17}/> Record production</Button>}/><Panel title="Production ledger" sub="Servings · latest 100 records"><Table rows={[...d.production].reverse()} columns={[{key:'date',label:'Date'},{key:'itemName',label:'Menu item'},{key:'prepared',label:'Prepared'},{key:'consumed',label:'Consumed'},{key:'surplus',label:'Surplus',render:r=><Badge tone={Number(r.surplus)/Number(r.prepared)>.15?'amber':'neutral'}>{r.surplus} servings</Badge>},{key:'rate',label:'Surplus rate',render:r=>Number(r.prepared)?(Number(r.surplus)/Number(r.prepared)*100).toFixed(1)+'%':'—'}]}/></Panel>{add&&<FormModal title="Record kitchen production" onClose={()=>setAdd(false)} fields={[{key:'date',label:'Production date',type:'date',value:day()},{key:'itemName',label:'Menu item',value:'Veg Thali'},{key:'prepared',label:'Actual prepared (servings)',type:'number'},{key:'consumed',label:'Actual consumed (servings)',type:'number'},{key:'baseline',label:'Prior preparation baseline (optional)',type:'number',required:false,help:'Used only for estimated prevention comparisons.'},{key:'overrideReason',label:'Planning / override notes',type:'textarea',required:false}]} onSave={async v=>{await post('/production',v);await refresh()}}/>}</>}
-function Inventory(){const {data:d,refresh}=useContext(Workspace);const [edit,setEdit]=useState<DataRow|null>(null);const [consume,setConsume]=useState<DataRow|null>(null);const [filter,setFilter]=useState('All stock');const status=(r:DataRow)=>r.expiry<day()?'Expired':Number(r.quantity)===0?'Unavailable':r.expiry<=day(3)?'Near expiry':Number(r.quantity)<Number(r.minimum)?'Low stock':'Healthy';const fields:Field[]=[{key:'itemName',label:'Ingredient'},{key:'quantity',label:'Quantity',type:'number'},{key:'unit',label:'Unit',options:['kg','grams','liters','packets']},{key:'minimum',label:'Minimum stock',type:'number'},{key:'expiry',label:'Expiry / best-before',type:'date'},{key:'storage',label:'Storage location',options:['Dry store','Cold storage','Produce room']},{key:'batch',label:'Batch reference'},{key:'category',label:'Category',options:['Ingredients','Produce','Dairy','Packaged']}];return <><PageHead title="Keep your kitchen in balance." sub="Know what’s available, what’s running low, and what to use first." actions={<Button onClick={()=>setEdit({})}><Plus size={17}/> Add stock</Button>}/><div className="mini-stats">{['Healthy','Low stock','Near expiry','Expired'].map(s=><div key={s}><Badge>{s}</Badge><strong>{d.inventory.filter((r:DataRow)=>status(r)===s).length}</strong></div>)}</div><Panel title="Inventory" sub="Use earliest-expiring stock first, subject to handling review." action={<Choice value={filter} onChange={setFilter} options={['All stock','Healthy','Low stock','Near expiry','Expired','Unavailable']}/>}><Table rows={d.inventory.filter((r:DataRow)=>filter==='All stock'||status(r)===filter)} columns={[{key:'itemName',label:'Ingredient',render:r=><strong>{r.itemName}</strong>},{key:'quantity',label:'In stock',render:r=>`${r.quantity} ${r.unit}`},{key:'expiry',label:'Expiry'},{key:'storage',label:'Location'},{key:'status',label:'Status',render:r=><Badge>{status(r)}</Badge>},{key:'actions',label:'Actions',render:r=><div className="row-actions"><button onClick={()=>setEdit(r)}>Edit</button><button onClick={()=>setConsume(r)}>Use stock</button></div>}]} /></Panel>{edit&&<FormModal title={edit.id?'Edit stock':'Add inventory item'} onClose={()=>setEdit(null)} fields={fields.map(f=>({...f,value:edit[f.key]??f.value}))} onSave={async v=>{if(edit.id)await patch('/inventory/'+edit.id,v);else await post('/inventory',v);await refresh()}}/>}{consume&&<FormModal title={'Use '+consume.itemName} onClose={()=>setConsume(null)} fields={[{key:'quantity',label:`Quantity to use (${consume.unit})`,type:'number',min:0.01,max:consume.quantity}]} onSave={async v=>{await post('/inventory/'+consume.id+'/consume',v);await refresh()}}/>}</>}
-function SurplusForm({onClose}:{onClose:()=>void}){const {refresh,message}=useContext(Workspace);return <FormModal title="Add surplus food" onClose={onClose} fields={[{key:'foodName',label:'Food name',value:'Veg Thali'},{key:'category',label:'Category',options:['Cooked meals','Produce','Packaged food']},{key:'dietaryType',label:'Dietary type',options:['Vegetarian','Non-vegetarian','Vegan']},{key:'quantity',label:'Quantity',type:'number',value:40,min:.01},{key:'unit',label:'Unit',options:['servings','kg','grams','liters','packets']},{key:'servings',label:'Equivalent servings (for matching)',type:'number',value:40,min:1},{key:'preparedAt',label:'Prepared at',type:'datetime-local',value:localDate(-30)},{key:'detectedAt',label:'Surplus detected',type:'datetime-local',value:localDate()},{key:'availableUntil',label:'Available until',type:'datetime-local',value:localDate(180)},{key:'storageMethod',label:'Storage method',options:['Hot held','Refrigerated','Shelf stable','Room temperature']},{key:'temperature',label:'Recorded temperature (°C)',type:'number',value:65,min:-40,max:150},{key:'packagingStatus',label:'Packaging',options:['Sealed','Unsealed']},{key:'notes',label:'Handling notes',type:'textarea',required:false},{key:'declaration',label:'Institution confirms handling records were checked',type:'checkbox'},{key:'organic',label:'Organic material suitable for recovery assessment',type:'checkbox',value:true},{key:'contaminated',label:'Known contamination concern',type:'checkbox'}]} onSave={async v=>{await post('/surplus',v);await refresh();message('Surplus recorded. Open its details to assess and match.')}}/>}
-function SurplusPage({mode}:{mode:string}){const {data:d,refresh,message}=useContext(Workspace);const {user}=useContext(Auth);const [add,setAdd]=useState(false);const [selected,setSelected]=useState<string|null>(null);const [filter,setFilter]=useState('All statuses');const titles:Record<string,[string,string]>={surplus:['Make surplus an opportunity.','Record, assess and find a responsible next destination.'],redistribution:['Every journey, connected.','Trace food from its source to a confirmed handover.'],'after-hours':['After-Hours Surplus Redistribution Network','When regular recipients are unavailable, explore verified late-hour options.'],offers:['Good food is waiting.','Review each offer and choose the pickup option that works for you.'],requests:['Your active requests.','Track accepted offers and confirm what arrives.'],deliveries:['The last mile matters.','Coordinate collection and delivery within the declared availability window.'],history:['A record of shared impact.','Completed handovers and past food journeys.']};const [title,sub]=titles[mode];let rows=d.surplus as DataRow[];if(mode==='after-hours')rows=rows.filter(r=>r.afterHours);if(mode==='offers')rows=rows.filter(r=>r.status==='offered');if(mode==='requests')rows=rows.filter(r=>!['completed','cancelled','expired','rejected'].includes(r.status));if(mode==='history')rows=rows.filter(r=>['completed','cancelled','expired','rejected'].includes(r.status));if(mode==='deliveries')rows=rows.filter(r=>r.pickupMode==='delivery'&&!['completed','cancelled'].includes(r.status));const active=d.surplus.find((r:DataRow)=>r.id===selected);return <><PageHead title={title} sub={sub} eyebrow={mode==='after-hours'?'RESPONSIBLE REDISTRIBUTION':'FOOD JOURNEYS'} actions={user!.role==='INSTITUTION'?<Button onClick={()=>setAdd(true)}><Plus size={17}/> Add surplus</Button>:undefined}/>{mode==='after-hours'&&<div className="note after-hours-note"><Moon size={23}/><div><strong>Availability first. Safety always.</strong><p>Regular matching runs first. If eligible recipients are unavailable, have declined, or have not responded for 15 minutes, FoodWise checks the after-hours network using the same handling and travel checks.</p></div></div>}<Panel title={mode==='offers'?'Incoming offers':mode==='deliveries'?'Delivery queue':'Food journeys'} sub="Open a record to see its handling context, matching and timeline." action={<Choice value={filter} onChange={setFilter} options={['All statuses','available','offered','delivery requested','assigned','in transit','completed','expired','recovery']}/>}><Table rows={rows.filter(r=>filter==='All statuses'||r.status===filter)} columns={[{key:'foodName',label:'Food',render:r=><div className="food-cell"><span><Utensils size={17}/></span><div><strong>{r.foodName}</strong><small>{r.dietaryType} · {r.category}</small></div></div>},{key:'quantity',label:'Quantity',render:r=>`${r.quantity} ${r.unit}`},{key:'availableUntil',label:'Available until',render:r=>time(r.availableUntil)},{key:'status',label:'Status',render:r=><Badge>{r.status}</Badge>},{key:'network',label:'Network',render:r=>r.afterHours?<Badge tone="blue">After hours</Badge>:'Regular'},{key:'action',label:'Details',render:r=><button className="text-link" onClick={()=>setSelected(r.id)}>Open journey <ArrowUpRight size={15}/></button>}]} /></Panel>{user!.role==='INSTITUTION'&&d.mode==='Demo data'&&<div className="demo-scenarios"><span>Prepared demo scenarios</span><Button kind="secondary" onClick={async()=>{try{const r=await post('/demo/scenario',{scenario:'after-hours'});await refresh();setSelected(r.id);message('After-hours scenario created with simulated regular-recipient declines.')}catch(e){message((e as Error).message)}}}><Moon size={16}/> After-hours case</Button><Button kind="secondary" onClick={async()=>{try{const r=await post('/demo/scenario',{scenario:'recovery'});await refresh();setSelected(r.id)}catch(e){message((e as Error).message)}}}><Recycle size={16}/> Recovery case</Button></div>}{add&&<SurplusForm onClose={()=>setAdd(false)}/>} {active&&<Journey record={active} onClose={()=>setSelected(null)}/>}</>}
-function Journey({record:x,onClose}:{record:DataRow;onClose:()=>void}){const {data:d,refresh,message}=useContext(Workspace);const {user}=useContext(Auth);const [matching,setMatching]=useState<DataRow|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const [actionForm,setActionForm]=useState<{action:string;title:string;fields:Field[]}|null>(null);const [photo,setPhoto]=useState('');const [cv,setCv]=useState<DataRow|null>(x.cv||null);const org=(id:string)=>d.organizations.find((o:DataRow)=>o.id===id)?.name||'Not assigned';useEffect(()=>()=>{if(photo)URL.revokeObjectURL(photo)},[photo]);async function action(action:string,payload:DataRow={}){setBusy(true);setError('');try{await post(`/surplus/${x.id}/action`,{action,payload});await refresh();message('Journey updated.');}catch(e){setError((e as Error).message);throw e;}finally{setBusy(false)}}const doAction=(s:string)=>void action(s).catch(()=>{});const form=(action:string,title:string,fields:Field[])=>setActionForm({action,title,fields});return <><Modal open onClose={onClose} title={x.foodName} description={`${x.quantity} ${x.unit} · ${org(x.organizationId)}`}><div className="journey-body"><div className="journey-status"><Badge>{x.status}</Badge><Badge tone={x.afterHours?'blue':'neutral'}>{x.afterHours?'After-hours network':'Regular network'}</Badge><span>Available until {time(x.availableUntil)}</span></div><div className="detail-grid">{[['Prepared',time(x.preparedAt)],['Storage',x.storageMethod],['Temperature',x.temperature===null?'Not recorded':x.temperature+' °C'],['Packaging',x.packagingStatus],['Recipient',org(x.recipientId)],['Logistics partner',org(x.partnerId)]].map(([k,v])=><div key={k}><span>{k}</span><strong>{v}</strong></div>)}</div><div className="assessment-box"><ShieldCheck size={21}/><div><strong>Redistribution decision support</strong><p><Badge>{x.assessment}</Badge></p>{x.assessmentReasons.map((r:string)=><p key={r}>{r}</p>)}<small>Final handling must follow applicable food-safety procedures. A photograph cannot establish safety.</small></div></div>{(x.pickupCode||x.deliveryCode)&&<div className="code-box"><div><strong>{x.pickupCode?'Pickup verification':'Delivery verification'}</strong><p>Share this code at the physical handover.</p></div><code>{x.pickupCode||x.deliveryCode}</code></div>}{x.reviewRequired&&<div className="error">This delivery exceeded the declared availability window. Handling review is required.</div>}{user!.role==='INSTITUTION'&&<><section className="vision-section"><div><h3>Visible quality assessment</h3><p>Real model inference · general object classification</p></div><label className="button secondary file-button"><Upload size={16}/>{busy?'Analyzing…':'Analyze image'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={async e=>{const f=e.target.files?.[0];if(!f)return;setBusy(true);setError('');setPhoto(URL.createObjectURL(f));const body=new FormData();body.append('file',f);try{const result=await api(`/surplus/${x.id}/vision`,{method:'POST',body});setCv(result);await refresh()}catch(e){setError((e as Error).message)}finally{setBusy(false);e.target.value=''}}}/></label></section>{(photo||cv)&&<div className="vision-result">{photo&&<img src={photo} alt="Uploaded food for visual assessment"/>}{cv&&<div><Badge tone="blue">{cv.modelVersion}</Badge><h3>{cv.detectedCategory}</h3><p>Top-label confidence: {Math.round(cv.confidence*100)}% · {cv.visibleAssessment}</p><small>{cv.warning}</small></div>}</div>}<div className="action-row">{['available','rejected','offered'].includes(x.status)&&<Button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{setMatching(await api(`/surplus/${x.id}/matches`))}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}><HeartHandshake size={16}/> Find recipient matches</Button>}{['available','rejected','cancelled','expired'].includes(x.status)&&<><Button kind="secondary" disabled={busy} onClick={()=>form('recover','Route to organic recovery',[{key:'reason',label:'Reason redistribution was not selected',type:'textarea'}])}><Recycle size={16}/> Recovery</Button><Button kind="text" onClick={()=>form('dispose','Record final disposal',[{key:'reason',label:'Reason recovery is not appropriate',type:'textarea'}])}>Final disposal</Button></>}</div>{x.cv&&!x.cv.reviewConfirmed&&<div className="note"><div><p>Image inference needs human review. Check handling conditions and the uploaded photo before requesting matches.</p><Button kind="secondary" disabled={busy} onClick={()=>form('review','Record visual and handling review',[{key:'confirmed',label:'I reviewed the image and handling records; this does not certify safety',type:'checkbox'}])}>Record review</Button></div></div>}{matching&&<div className="match-section"><h3>{matching.afterHours?'After-Hours Surplus Redistribution Network':'Smart recipient matching'}</h3><p>{matching.reason}</p>{matching.matches.length===0?<Empty title="No eligible recipient" text="Review the handling context or consider an appropriate recovery route."/>:matching.matches.map((m:DataRow)=><div className="match-card" key={m.recipientId}><div className="match-top"><div><h4>{m.name}</h4><p>{m.distance} km · {m.estimatedTravelTime} min estimated journey</p></div><span className="match-score">{m.score}<small>/100</small></span></div><ul>{m.reasons.map((r:string)=><li key={r}><Check size={14}/>{r}</li>)}</ul><Button kind="secondary" disabled={busy} onClick={()=>void action('offer',{recipientId:m.recipientId}).then(()=>setMatching(null)).catch(()=>{})}>Send offer <ArrowRight size={16}/></Button></div>)}{matching.excluded.length>0&&<details><summary>Why other recipients were excluded</summary>{matching.excluded.map((r:DataRow)=><p key={r.name}>{r.name}: {r.reason}</p>)}</details>}</div>}</>}{user!.role==='RECIPIENT'&&x.status==='offered'&&<div className="action-row"><Button disabled={busy} onClick={()=>void action('accept',{mode:'delivery'}).catch(()=>{})}>Accept · Need delivery</Button><Button kind="secondary" disabled={busy||!d.organization.pickup} onClick={()=>void action('accept',{mode:'self'}).catch(()=>{})}>Accept · Self pickup</Button><Button kind="text" onClick={()=>form('reject','Decline offer',[{key:'reason',label:'Reason',options:['Capacity full','Not required','Closed','Unsuitable category','Transport unavailable','Other']}])}>Decline</Button></div>}{user!.role==='RECIPIENT'&&['delivered','self pickup'].includes(x.status)&&<Button disabled={busy} onClick={()=>form('confirm','Confirm received food',[...(x.status==='self pickup'?[{key:'code',label:'Pickup code from institution'}]:[]),{key:'quantity',label:`Received quantity (${x.unit})`,type:'number',value:x.quantity,min:.01,max:x.quantity},{key:'note',label:'Quantity or packaging issue (optional)',type:'textarea',required:false},{key:'reviewConfirmed',label:'Handling conditions reviewed, including any late arrival',type:'checkbox'}])}>Confirm receipt <Check size={16}/></Button>}{user!.role==='LOGISTICS'&&<div className="action-row">{x.status==='delivery requested'&&<Button disabled={busy} onClick={()=>doAction('claim')}>Accept delivery</Button>}{x.status==='assigned'&&<Button disabled={busy} onClick={()=>doAction('arrive')}>Arrived for pickup</Button>}{x.status==='arrived'&&<Button onClick={()=>form('pickup','Verify pickup',[{key:'code',label:'Pickup code from institution'}])}>Confirm pickup</Button>}{x.status==='picked up'&&<Button disabled={busy} onClick={()=>doAction('transit')}>Start transit</Button>}{x.status==='in transit'&&<Button onClick={()=>form('deliver','Verify delivery',[{key:'code',label:'Delivery code from recipient'}])}>Confirm delivery</Button>}</div>}{x.pickupMode==='delivery'&&<div className="route-card"><Badge tone="blue">Simulated route</Badge><div><span className="route-pin"/><p><small>PICKUP</small><strong>{org(x.organizationId)}</strong></p></div><div><span className="route-pin end"/><p><small>DROP-OFF</small><strong>{org(x.recipientId)}</strong></p></div><p>{x.estimatedTravelTime||'—'} minutes estimated · no live GPS or traffic data</p></div>}{['offered','delivery requested','assigned','arrived','self pickup'].includes(x.status)&&<Button kind="text danger" disabled={busy} onClick={()=>form('cancel','Cancel this journey',[{key:'reason',label:'Cancellation reason',type:'textarea'}])}>Cancel journey</Button>}{error&&<div className="error" role="alert">{error}</div>}<h3 className="timeline-title">Traceability timeline</h3><div className="timeline">{x.timeline.map((t:DataRow,i:number)=><div key={i}><i/><div><strong>{t.action}</strong><p>{t.actor} · {time(t.at)}</p></div></div>)}</div></div></Modal>{actionForm&&<FormModal title={actionForm.title} fields={actionForm.fields} onClose={()=>setActionForm(null)} onSave={async v=>{await action(actionForm.action,v)}}/>}</>}
-function Recovery(){const {data:d,refresh,message}=useContext(Workspace);return <><PageHead title="A responsible next life." sub="Recover suitable organic material. Keep disposal as the final option."/><div className="note"><Recycle size={22}/><p>Recovery destinations are simulated. Contaminated or unsuitable material needs an approved specialist route; not every food item is compostable.</p></div><Panel title="Recovery & disposal ledger"><Table rows={d.recovery} columns={[{key:'foodName',label:'Material'},{key:'quantity',label:'Quantity',render:r=>`${r.quantity} ${r.unit}`},{key:'method',label:'Route'},{key:'reason',label:'Reason'},{key:'status',label:'Status',render:r=><Badge>{r.status}</Badge>},{key:'action',label:'Next step',render:r=>['scheduled','handed over'].includes(r.status)?<button className="text-link" onClick={async()=>{try{await patch('/recovery/'+r.id,{status:r.status==='scheduled'?'handed over':'completed'});await refresh();message('Recovery record updated.')}catch(e){message((e as Error).message)}}}>{r.status==='scheduled'?'Confirm handover':'Complete recovery'}</button>:'Recorded'}]}/></Panel></>}
-function Sensors(){const q=useQuery({queryKey:['sensors'],queryFn:()=>api('/sensors'),refetchInterval:15000});return <><PageHead title="Know your storage conditions." sub="Simulated IoT readings. Thresholds are demo settings, not universal safety standards." actions={<Badge tone="blue">Simulated IoT Data</Badge>}/>{q.isPending?<Loading/>:q.error?<div className="error">{q.error.message}</div>:<div className="sensor-grid">{q.data.sensors.map((s:DataRow)=><Panel key={s.id} title={s.label} sub={`${s.location} · ${s.id}`} action={<Thermometer size={20}/>}><div className="sensor-reading"><strong>{s.value}<small>{s.unit}</small></strong><Badge>{s.status}</Badge></div><div className="sensor-chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={s.history}><Area dataKey="value" type="monotone" stroke={s.status==='attention'?'#b57b2c':'#408665'} fill={s.status==='attention'?'#faf1dd':'#edf5ed'}/><Tooltip/></AreaChart></ResponsiveContainer></div><p className="panel-note">Demo alert above {s.limit} {s.unit} · {time(s.timestamp)}</p></Panel>)}</div>}</>}
-function Processing(){const rows=Array.from({length:7},(_,i)=>{const input=440+i*18,output=input-(20+i*2);return {id:String(i),date:day(-i),input,output,loss:((input-output)/input*100).toFixed(1),energy:34+i*1.4,downtime:8+i*2}});return <><PageHead title="Less loss, at every step." sub="Processing efficiency demonstration · all values in this module are simulated." actions={<Badge tone="blue">Simulated processing data</Badge>}/><Panel title="Batch efficiency" sub="Illustrative raw-material, output and resource measurements"><Table rows={rows} columns={[{key:'date',label:'Batch date'},{key:'input',label:'Input (kg)'},{key:'output',label:'Output (kg)'},{key:'loss',label:'Loss (%)'},{key:'energy',label:'Energy (kWh)'},{key:'downtime',label:'Downtime (min)'}]}/></Panel><div className="note"><Activity size={21}/><p>Demo processing loss ranges from {rows[0].loss}% to {rows[6].loss}%. Production devices and batch records can replace this simulation through an authenticated ingestion adapter.</p></div></>}
-function Analytics(){const {data:d,message}=useContext(Workspace);const a=d.analytics;const flow=[{name:'Prevented',kg:a.prevented},{name:'Redistributed',kg:a.redistributed},{name:'Recovered',kg:a.recovered},{name:'Disposed',kg:a.disposed}];return <><PageHead title="See the difference you make." sub="Record-derived outcomes, with estimated conversions kept visible." actions={<Button kind="secondary" onClick={()=>download('/analytics.csv','foodwise-impact.csv').catch(e=>message(e.message))}><Download size={16}/> Export CSV</Button>}/><Kpis/><div className="two-columns"><Panel title="Food flow" sub="Estimated kilograms · outcomes are counted separately"><div className="chart"><ResponsiveContainer><BarChart data={flow} margin={{left:-15,right:15}}><CartesianGrid vertical={false} strokeDasharray="3 4"/><XAxis dataKey="name" tickLine={false} axisLine={false} tick={{fontSize:12}}/><YAxis axisLine={false} tickLine={false}/><Tooltip/><Bar dataKey="kg" fill="#468568" radius={[5,5,0,0]} maxBarSize={58}/></BarChart></ResponsiveContainer></div></Panel><Panel title="Redistribution trend" sub="Last 14 days · completed handovers"><Trend impact/></Panel></div><Panel title="How these estimates are calculated"><div className="method-grid"><div><Scale size={22}/><h3>Meal equivalents</h3><p>Converted mass ÷ {a.methodology.kgPerServing} kg per serving. Liter and packet records need an explicit serving count.</p></div><div><Leaf size={22}/><h3>Environmental impact</h3><p>Prevented + redistributed kg × {a.methodology.co2PerKg} kg CO₂e. Illustrative factor, not an audited claim.</p></div><div><TrendingUp size={22}/><h3>Estimated cost avoided</h3><p>Prevented kg × ₹{a.methodology.costPerKg}. Prevention compares preparation against recorded baseline estimates.</p></div></div></Panel></>}
-function Reports(){const {data:d,refresh}=useContext(Workspace);const {user}=useContext(Auth);const [from,setFrom]=useState(day(-30));const [to,setTo]=useState(day());const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [institution,setInstitution]=useState('All institutions');async function generate(f=from,t=to,id=''){setBusy(true);setError('');try{const selected=id||d.organizations.find((o:DataRow)=>o.name===institution)?.id||'';await download(`/reports.pdf?from=${f}&to=${t}&institutionId=${selected}`,`FoodWise-${f}-${t}.pdf`);await refresh()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}return <><PageHead title="Impact, made shareable." sub="Generate a sustainability report with the numbers and the assumptions behind them."/><div className="report-builder panel"><div className="report-icon"><FileText size={35}/></div><div><h2>Sustainability & operational impact</h2><p>Record-derived outcomes · estimated metrics · methodology included</p></div><div className="forecast-controls"><label>From<input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></label><label>To<input type="date" value={to} onChange={e=>setTo(e.target.value)}/></label>{user!.role==='ADMIN'&&<label>Institution<Choice value={institution} onChange={setInstitution} options={['All institutions',...d.organizations.filter((o:DataRow)=>o.type==='INSTITUTION').map((o:DataRow)=>o.name)]}/></label>}<Button disabled={busy} onClick={()=>void generate()}>{busy?<Loader2 className="spin" size={16}/>:<Download size={16}/>} Generate PDF</Button></div></div>{error&&<div className="error">{error}</div>}<Panel title="Report history"><Table rows={d.reports} columns={[{key:'title',label:'Report'},{key:'from',label:'From'},{key:'to',label:'To'},{key:'createdAt',label:'Generated',render:r=>time(r.createdAt)},{key:'download',label:'Action',render:r=><button className="text-link" onClick={()=>void generate(r.from,r.to,r.institutionId)}>Regenerate PDF <Download size={14}/></button>}]}/></Panel></>}
-function Organizations({kind}:{kind:string}){const {data:d,refresh,message}=useContext(Workspace);const type=kind==='institutions'?'INSTITUTION':kind==='recipients'?'RECIPIENT':'LOGISTICS';const rows=d.organizations.filter((o:DataRow)=>o.type===type);async function update(id:string,v:DataRow){try{await patch('/organizations/'+id,v);await refresh();message('Organization updated.')}catch(e){message((e as Error).message)}}return <><PageHead title={kind==='institutions'?'The kitchens behind the change.':kind==='recipients'?'A network that nourishes.':'Partners for the last mile.'} sub="Review verification, availability and organization status."/><Panel title={roleName[type]+' directory'}><Table rows={rows} columns={[{key:'name',label:'Organization',render:r=><div><strong>{r.name}</strong><small className="block">{r.address}</small></div>},{key:'subtype',label:'Type'},{key:'verified',label:'Verification',render:r=><Badge>{r.verified?'Verified':'Review needed'}</Badge>},{key:'available',label:'Availability',render:r=>r.available?'Available':'Offline'},{key:'active',label:'Account',render:r=><Badge>{r.active?'Active':'Inactive'}</Badge>},{key:'actions',label:'Manage',render:r=><div className="row-actions"><button onClick={()=>void update(r.id,{verified:!r.verified})}>{r.verified?'Revoke verification':'Verify'}</button><button onClick={()=>void update(r.id,{active:!r.active})}>{r.active?'Deactivate':'Activate'}</button></div>}]} /></Panel></>}
-function SettingsPage({requirements=false}:{requirements?:boolean}){const {data:d,refresh,message}=useContext(Workspace);const {user}=useContext(Auth);const [edit,setEdit]=useState(false);const [settings,setSettings]=useState(false);const o=d.organization;const fields:Field[]=[{key:'name',label:'Organization name'},{key:'address',label:'Address'},{key:'phone',label:'Contact phone',required:false},{key:'available',label:'Available for operations',type:'checkbox'},...(user!.role==='INSTITUTION'?[{key:'buffer',label:'Preparation buffer (%)',type:'number',min:0,max:15}]:[]),...(user!.role==='RECIPIENT'?[{key:'capacity',label:'Maximum capacity (servings)',type:'number'},{key:'requirement',label:'Current requirement (servings)',type:'number'},{key:'openHour',label:'Opening hour (UTC, 0–23)',type:'number',max:23},{key:'closeHour',label:'Closing hour (UTC, 0–24)',type:'number',max:24},{key:'pickup',label:'Self-pickup capability',type:'checkbox'},{key:'refrigeration',label:'Refrigeration capability',type:'checkbox'},{key:'diet',label:'Accepted dietary type',options:['Vegetarian','Non-vegetarian','Vegan'],value:o.dietary[0]},{key:'category',label:'Accepted category',options:['All categories','Cooked meals','Produce','Packaged food'],value:o.categories.length===3?'All categories':o.categories[0]}]:[]),...(user!.role==='LOGISTICS'?[{key:'vehicle',label:'Vehicle type'}]:[])];return <><PageHead title={requirements?'Tell us what you can receive.':'Your workspace, your way.'} sub="Keep organization details and operational preferences up to date." actions={<Button onClick={()=>setEdit(true)}>Edit profile <Settings size={16}/></Button>}/><div className="two-columns"><Panel title={o.name} sub={roleName[user!.role]}><div className="padded profile-details"><Badge>{o.verified?'Verified organization':'Verification pending'}</Badge><p>{o.address}</p><div><span>Availability</span><strong>{o.available?'Available':'Offline'}</strong></div>{user!.role==='RECIPIENT'&&<><div><span>Current requirement</span><strong>{o.requirement} servings</strong></div><div><span>Capacity</span><strong>{o.capacity} servings</strong></div><div><span>Preferences</span><strong>{o.dietary.join(', ')}</strong></div><div><span>Categories</span><strong>{o.categories.join(', ')}</strong></div><div><span>Operating hours (UTC)</span><strong>{o.openHour}:00 – {o.closeHour}:00</strong></div><div><span>Self pickup / refrigeration</span><strong>{o.pickup?'Yes':'No'} / {o.refrigeration?'Yes':'No'}</strong></div></>}{user!.role==='INSTITUTION'&&<div><span>Preparation buffer</span><strong>{o.buffer}%</strong></div>}<Button kind="secondary" onClick={async()=>{try{await patch('/profile',{available:!o.available});await refresh();message('Availability updated.')}catch(e){message((e as Error).message)}}}>{o.available?'Set offline':'Set available'}</Button></div></Panel><Panel title="Data & integrations" sub="Current prototype configuration"><div className="padded integration-list">{[['Storage',d.database],['POS','Synthetic CSV'],['IoT and routing','Simulated'],['WhatsApp','Adapter ready; not connected'],['Tally','Future integration']].map(([k,v])=><div key={k}><span>{k}</span><Badge>{v}</Badge></div>)}</div></Panel></div>{user!.role==='ADMIN'&&<Panel title="Impact and handling assumptions" action={<Button kind="secondary" onClick={()=>setSettings(true)}>Edit assumptions</Button>}><div className="padded"><p>Mass conversion: {d.settings.kgPerServing} kg/serving · Emissions: {d.settings.co2PerKg} kg CO₂e/kg · Cost: ₹{d.settings.costPerKg}/kg</p><p>Minimum remaining window: {d.settings.minimumWindowMinutes} min · Pickup allowance: {d.settings.pickupDelayMinutes} min</p></div></Panel>}{edit&&<FormModal title="Edit organization profile" onClose={()=>setEdit(false)} fields={fields.map(f=>({...f,value:o[f.key]??f.value}))} onSave={async v=>{if(v.diet){v.dietary=[v.diet];delete v.diet;}if(v.category){v.categories=v.category==='All categories'?['Cooked meals','Produce','Packaged food']:[v.category];delete v.category;}await patch('/profile',v);await refresh()}}/>}{settings&&<FormModal title="Prototype assumptions" onClose={()=>setSettings(false)} fields={[['kgPerServing','Kilograms per serving'],['co2PerKg','Estimated kg CO₂e per kg'],['costPerKg','Estimated INR per kg'],['minimumWindowMinutes','Minimum window (minutes)'],['pickupDelayMinutes','Pickup allowance (minutes)']].map(([key,label])=>({key,label,type:'number',value:d.settings[key]}))} onSave={async v=>{await patch('/settings',v);await refresh()}}/>}</>}
-function Notifications(){const {data:d,refresh,message}=useContext(Workspace);const nav=useNavigate();return <><PageHead title="Stay in the loop." sub="Offers, handovers and updates for your organization."/><Panel title="Notification center">{!d.notifications.length?<Empty title="You’re all caught up"/>:<div className="notifications">{d.notifications.map((n:DataRow)=><div key={n.id} className={!n.read?'unread':''}><span className="notification-symbol"><Bell size={20}/></span><div><strong>{n.title}</strong><p>{n.message}</p><small>{time(n.createdAt)} · In-app notification</small></div><button className="text-link" onClick={async()=>{try{await patch('/notifications/'+n.id,{read:true});await refresh();nav(n.path||'/')}catch(e){message((e as Error).message)}}}>{n.read?'Open':'Read & open'}<ArrowUpRight size={15}/></button></div>)}</div>}</Panel></>}
-function StatusPage(){const q=useQuery({queryKey:['status'],queryFn:()=>api('/status')});return <><PageHead title="An honest view of the system." sub="What is connected, what is simulated, and what comes next." actions={<Button kind="secondary" onClick={()=>void q.refetch()}>Refresh status</Button>}/>{q.isPending?<Loading/>:q.error?<div className="error">{q.error.message}</div>:<Panel title="Services & connectors"><div className="status-grid">{Object.entries(q.data).map(([key,value])=><div key={key}><Activity size={20}/><h3>{key==='ai'?'AI service':key.toUpperCase()}</h3>{typeof value==='object'?Object.entries(value as DataRow).map(([k,v])=><p key={k}>{k}: {String(v)}</p>):<Badge>{String(value)}</Badge>}</div>)}</div></Panel>}</>}
-function Audit(){const {data:d}=useContext(Workspace);return <><PageHead title="Every action, accounted for." sub="A searchable record of the decisions and handovers across FoodWise."/><Panel title="Audit trail"><Table rows={d.audit} columns={[{key:'createdAt',label:'Time',render:r=>time(r.createdAt)},{key:'actor',label:'Actor'},{key:'role',label:'Role'},{key:'action',label:'Action'},{key:'entityId',label:'Record reference'}]}/></Panel></>}
-function About(){return <><PageHead title="A little wiser. A lot less waste." sub="FoodWise by Team Anvay · Connected to Create"/><Panel title="Prevent → Redistribute → Recover → Dispose"><div className="padded about-copy"><p>FoodWise supports institutions before, during and after food preparation: demand planning, inventory monitoring, image-supported review, recipient matching, logistics and impact reporting.</p><div className="detail-grid"><div><span>Problem statement</span><strong>SIH 26234</strong></div><div><span>Organization</span><strong>Ministry of Food Processing Industries</strong></div><div><span>Theme</span><strong>Agriculture, FoodTech & Rural Development</strong></div><div><span>Team</span><strong>Anvay · Connected to Create</strong></div></div><h3>Prototype transparency</h3><p>Forecasts use synthetic or uploaded institutional POS-style records. Vision runs a real general-purpose image classifier, which cannot determine freshness or food safety. IoT, routes, recovery destinations and processing readings are simulated. Sustainability conversion factors are illustrative estimates.</p><p>Live POS, Tally, production WhatsApp, external logistics and real IoT integrations are future work. FoodWise provides decision support; final food handling follows organizational and applicable safety procedures.</p></div></Panel></>}
-export default function Root(){return <QueryClientProvider client={queryClient}><BrowserRouter><App/></BrowserRouter></QueryClientProvider>}
+import React, { useState, useEffect, createContext, useContext } from "react";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  NavLink,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  Leaf,
+  LayoutDashboard,
+  ChartNoAxesCombined,
+  Database,
+  Utensils,
+  Package,
+  Thermometer,
+  HeartHandshake,
+  Truck,
+  Moon,
+  Recycle,
+  ChartPie,
+  FileText,
+  Bell,
+  Settings,
+  LogOut,
+  Menu,
+  ArrowUpRight,
+  ArrowRight,
+  Plus,
+  CalendarDays,
+  ChevronDown,
+  ShieldCheck,
+  Users,
+  Activity,
+  History,
+  Info,
+  Check,
+  Upload,
+  Download,
+  Sprout,
+  TrendingUp,
+  Scale,
+  Factory,
+  X,
+  Loader2,
+} from "lucide-react";
+import {
+  AreaChart,
+  Area,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+} from "recharts";
+import { api, post, patch, download } from "./api";
+import {
+  Button,
+  Badge,
+  Choice,
+  Empty,
+  Loading,
+  Modal,
+  FormModal,
+  Table,
+  Panel,
+  number,
+  time,
+  day,
+  localDate,
+  type DataRow,
+  type Field,
+} from "./components";
+import "./styles.css";
+import "./design.css";
+import {
+  LoginView,
+  ImpactCharts,
+  ProcessingCharts,
+  FactoryFlow,
+  NetworkCharts,
+  processingRows,
+  ForecastChart,
+  RecoveryChart,
+  SustainabilityCharts,
+} from "./Design";
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, staleTime: 10000 } },
+});
+const Auth = createContext<{
+  user: DataRow | null;
+  setUser: (u: DataRow | null) => void;
+}>({ user: null, setUser: () => {} });
+const Workspace = createContext<{
+  data: DataRow;
+  refresh: () => Promise<void>;
+  message: (s: string) => void;
+}>({ data: {}, refresh: async () => {}, message: () => {} });
+const roleName: Record<string, string> = {
+  INSTITUTION: "Hotel / Restaurant",
+  RECIPIENT: "Recipient",
+  ADMIN: "Admin",
+};
+const navs: Record<string, [string, string, React.ElementType][]> = {
+  INSTITUTION: [
+    ["/", "Overview", LayoutDashboard],
+    ["/forecast", "Demand forecast", ChartNoAxesCombined],
+    ["/pos", "POS data", Database],
+    ["/production", "Production planning", Utensils],
+    ["/inventory", "Inventory", Package],
+    ["/sensors", "IoT monitor", Thermometer],
+    ["/surplus", "Surplus food", HeartHandshake],
+    ["/redistribution", "Redistribution", Truck],
+    ["/after-hours", "After-hours network", Moon],
+    ["/recovery", "Recovery", Recycle],
+    ["/analytics", "Analytics", ChartPie],
+    ["/reports", "ESG reports", FileText],
+  ],
+  FACTORY: [
+    ["/", "Overview", LayoutDashboard],
+    ["/processing", "Production insights", Factory],
+    ["/inventory", "Inventory", Package],
+    ["/sensors", "IoT monitor", Thermometer],
+    ["/surplus", "Surplus & by-products", HeartHandshake],
+    ["/redistribution", "Redistribution", Truck],
+    ["/after-hours", "After-hours network", Moon],
+    ["/recovery", "Recovery", Recycle],
+    ["/analytics", "Analytics", ChartPie],
+    ["/reports", "ESG reports", FileText],
+  ],
+  RECIPIENT: [
+    ["/", "Overview", LayoutDashboard],
+    ["/offers", "Food offers", HeartHandshake],
+    ["/requirements", "Requirements", Settings],
+    ["/requests", "Active redistributions", Package],
+    ["/history", "Received history", History],
+    ["/analytics", "Impact", ChartPie],
+  ],
+  ADMIN: [
+    ["/", "Network overview", LayoutDashboard],
+    ["/institutions", "Institutions", Utensils],
+    ["/recipients", "Recipients", Users],
+    ["/redistribution", "Surplus & redistribution", HeartHandshake],
+    ["/after-hours", "After-hours network", Moon],
+    ["/recovery", "Recovery", Recycle],
+    ["/analytics", "Network analytics", ChartPie],
+    ["/reports", "ESG reports", FileText],
+    ["/audit", "Audit history", History],
+  ],
+};
+const isFactory = (user: DataRow | null, org?: DataRow) =>
+  user?.institutionType === "FACTORY" ||
+  org?.institutionType === "FACTORY" ||
+  org?.subtype === "Factory";
+function Brand() {
+  return (
+    <div className="brand">
+      <span className="brand-icon">
+        <Leaf size={23} strokeWidth={1.7} />
+      </span>
+      <span>
+        FoodWise<span className="brand-period">.</span>
+      </span>
+    </div>
+  );
+}
+function App() {
+  const [user, setUser] = useState<DataRow | null>(null);
+  const [init, setInit] = useState(true);
+  useEffect(() => {
+    if (sessionStorage.getItem("foodwise-token"))
+      api("/auth/me")
+        .then((u) => {
+          if (!["INSTITUTION", "RECIPIENT", "ADMIN"].includes(u.role))
+            throw new Error("Workspace no longer available");
+          setUser(u);
+        })
+        .catch(() => sessionStorage.removeItem("foodwise-token"))
+        .finally(() => setInit(false));
+    else setInit(false);
+    const expire = () => setUser(null);
+    window.addEventListener("session-expired", expire);
+    return () => window.removeEventListener("session-expired", expire);
+  }, []);
+  return (
+    <Auth.Provider value={{ user, setUser }}>
+      {init ? <Loading /> : user ? <Shell /> : <Login />}
+    </Auth.Provider>
+  );
+}
+function Login() {
+  const { setUser } = useContext(Auth);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const nav = useNavigate();
+  const settings = useQuery({
+    queryKey: ["auth-config"],
+    queryFn: () => api("/auth/config"),
+  });
+  async function login(
+    email: string,
+    password: string,
+    workspace: string,
+    remember: boolean,
+  ) {
+    setError("");
+    setBusy(true);
+    try {
+      const r = await post("/auth/login", { email, password, workspace });
+      const actual =
+        r.user.role === "INSTITUTION"
+          ? r.user.institutionType || "HOTEL_RESTAURANT"
+          : r.user.role;
+      if (actual !== workspace)
+        throw new Error(
+          "This account belongs to a different workspace. Choose its workspace and try again.",
+        );
+      sessionStorage.setItem("foodwise-token", r.token);
+      if (remember) localStorage.setItem("foodwise-email", email);
+      else localStorage.removeItem("foodwise-email");
+      queryClient.clear();
+      setUser(r.user);
+      nav("/");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <LoginView
+      onLogin={(...args) => void login(...args)}
+      busy={busy}
+      error={error}
+      demo={!!settings.data?.demo}
+    />
+  );
+}
+function Shell() {
+  const { user, setUser } = useContext(Auth);
+  const q = useQuery({
+    queryKey: ["workspace", user!.id],
+    queryFn: () => api("/workspace"),
+    refetchInterval: 15000,
+  });
+  const [mobile, setMobile] = useState(false);
+  const [toast, setToast] = useState("");
+  const nav = useNavigate();
+  const location = useLocation();
+  useEffect(() => {
+    setMobile(false);
+  }, [location.pathname]);
+  useEffect(() => {
+    if (toast) {
+      const t = setTimeout(() => setToast(""), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [toast]);
+  const refresh = async () => {
+    await q.refetch();
+  };
+  const links =
+    navs[isFactory(user, q.data?.organization) ? "FACTORY" : user!.role] || [];
+  const allowed = [
+    ...links.map((x) => x[0]),
+    "/notifications",
+    "/settings",
+    "/about",
+  ];
+  const d = q.data;
+  const logout = () => {
+    sessionStorage.removeItem("foodwise-token");
+    queryClient.clear();
+    setUser(null);
+    nav("/");
+  };
+  return (
+    <Workspace.Provider value={{ data: d || {}, refresh, message: setToast }}>
+      <div className="app-shell">
+        <aside className={"sidebar " + (mobile ? "is-open" : "")}>
+          <Brand />
+          <button className="org-switch" onClick={() => nav("/settings")}>
+            <span className="org-avatar">
+              {user!.role === "ADMIN"
+                ? "FW"
+                : (d?.organization?.name || "FW")
+                    .split(" ")
+                    .map((w: string) => w[0])
+                    .slice(0, 2)
+                    .join("")}
+            </span>
+            <span>
+              <strong>{d?.organization?.name || "Workspace"}</strong>
+              <small>
+                {isFactory(user, d?.organization)
+                  ? "Factory"
+                  : roleName[user!.role]}
+              </small>
+            </span>
+            <ChevronDown size={15} />
+          </button>
+          <div className="nav-label">WORKSPACE</div>
+          <nav>
+            {links.map(([path, label, Icon]) => (
+              <NavLink
+                key={path}
+                to={path}
+                end
+                className={({ isActive }) => (isActive ? "active" : "")}
+              >
+                <Icon size={18} />
+                <span>{label}</span>
+                {path === "/surplus" && d?.analytics?.active > 0 && (
+                  <em>{d.analytics.active}</em>
+                )}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="sidebar-bottom">
+            <div className="philosophy">
+              <Sprout size={19} />
+              <div>
+                <strong>Making Every Meal Count</strong>
+                <small>Prevention comes first.</small>
+              </div>
+            </div>
+            <NavLink to="/settings">
+              <Settings size={18} /> Settings & profile
+            </NavLink>
+            <NavLink to="/about">
+              <Info size={18} /> About FoodWise
+            </NavLink>
+            <button onClick={logout}>
+              <LogOut size={18} /> Sign out
+            </button>
+            <div className="team-credit">
+              BY TEAM ANVAY <span>↗</span>
+            </div>
+          </div>
+        </aside>
+        {mobile && (
+          <button
+            aria-label="Close navigation"
+            className="mobile-shade"
+            onClick={() => setMobile(false)}
+          />
+        )}
+        <div className="workspace">
+          <header className="topbar">
+            <div className="breadcrumb">
+              <button
+                className="icon-button mobile-toggle"
+                aria-label="Open navigation"
+                onClick={() => setMobile(!mobile)}
+              >
+                <Menu size={22} />
+              </button>
+              <span>Workspace</span>
+              <span>/</span>
+              <strong>
+                {links.find((l) => l[0] === location.pathname)?.[1] ||
+                  location.pathname.slice(1).replace("-", " ")}
+              </strong>
+            </div>
+            <div className="topbar-right">
+              <span className="demo-tag">{d?.mode || "Connecting"}</span>
+              <button
+                className="notification-button icon-button"
+                aria-label="Notifications"
+                onClick={() => nav("/notifications")}
+              >
+                <Bell size={19} />
+                {d?.notifications?.some((n: DataRow) => !n.read) && <i />}
+              </button>
+              <div className="avatar" title={user!.name}>
+                {user!.name.slice(0, 2).toUpperCase()}
+              </div>
+            </div>
+          </header>
+          <main>
+            {q.isPending ? (
+              <Loading />
+            ) : q.error ? (
+              <div className="error-panel">
+                <h2>Workspace could not load</h2>
+                <p>{(q.error as Error).message}</p>
+                <Button onClick={() => void refresh()}>Try again</Button>
+              </div>
+            ) : !allowed.includes(location.pathname) ? (
+              <Navigate to="/" replace />
+            ) : (
+              <Routes>
+                <Route path="/" element={<Overview />} />
+                <Route path="/forecast" element={<Forecast />} />
+                <Route path="/pos" element={<PosPage />} />
+                <Route path="/production" element={<Production />} />
+                <Route path="/inventory" element={<Inventory />} />
+                <Route path="/sensors" element={<Sensors />} />
+                <Route path="/processing" element={<Processing />} />
+                {[
+                  "surplus",
+                  "redistribution",
+                  "after-hours",
+                  "offers",
+                  "requests",
+                  "history",
+                ].map((p) => (
+                  <Route
+                    key={p}
+                    path={"/" + p}
+                    element={<SurplusPage mode={p} />}
+                  />
+                ))}
+                <Route path="/recovery" element={<Recovery />} />
+                {["institutions", "recipients"].map((p) => (
+                  <Route
+                    key={p}
+                    path={"/" + p}
+                    element={<Organizations kind={p} />}
+                  />
+                ))}
+                <Route path="/analytics" element={<Analytics />} />
+                <Route path="/reports" element={<Reports />} />
+                <Route path="/notifications" element={<Notifications />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route
+                  path="/requirements"
+                  element={<SettingsPage requirements />}
+                />
+                <Route path="/audit" element={<Audit />} />
+                <Route path="/about" element={<About />} />
+              </Routes>
+            )}
+          </main>
+          <footer className="workspace-footer">
+            <span>
+              FoodWise <span>·</span> Predict → Prevent → Redistribute → Recover
+            </span>
+            <span>Making Every Meal Count</span>
+          </footer>
+        </div>
+        {toast && (
+          <div className="toast" role="status">
+            <Check size={18} />
+            {toast}
+            <button aria-label="Dismiss" onClick={() => setToast("")}>
+              <X size={15} />
+            </button>
+          </div>
+        )}
+      </div>
+    </Workspace.Provider>
+  );
+}
+function PageHead({
+  eyebrow = "KITCHEN INTELLIGENCE",
+  title,
+  sub,
+  actions,
+}: {
+  eyebrow?: string;
+  title: string;
+  sub: string;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="page-head">
+      <div>
+        <span className="eyebrow">{eyebrow}</span>
+        <h1>{title}</h1>
+        <p>{sub}</p>
+      </div>
+      <div className="page-actions">{actions}</div>
+    </div>
+  );
+}
+function Kpis() {
+  const { data } = useContext(Workspace);
+  const { user } = useContext(Auth);
+  return <ImpactCharts data={data} recipient={user!.role === "RECIPIENT"} />;
+}
+function Overview() {
+  const { data: d } = useContext(Workspace);
+  const { user } = useContext(Auth);
+  const nav = useNavigate();
+  const [add, setAdd] = useState(false);
+  const inst = user!.role === "INSTITUTION",
+    admin = user!.role === "ADMIN",
+    factory = isFactory(user, d.organization);
+  const alerts = d.inventory.filter(
+    (r: DataRow) =>
+      Number(r.quantity) <= Number(r.minimum) || r.expiry <= day(3),
+  );
+  return (
+    <>
+      <PageHead
+        eyebrow={
+          factory
+            ? "PROCESSING INTELLIGENCE"
+            : admin
+              ? "ECOSYSTEM INTELLIGENCE"
+              : inst
+                ? "KITCHEN INTELLIGENCE"
+                : "COMMUNITY IMPACT"
+        }
+        title={
+          factory
+            ? "Better processes. Less food loss."
+            : admin
+              ? "One ecosystem. A shared impact."
+              : inst
+                ? "A good day to waste less."
+                : "Good food, going further."
+        }
+        sub={d.organization.name + " · Your decisions make the difference."}
+        actions={
+          <>
+            <span className="date-pill">
+              <CalendarDays size={16} />
+              {new Date().toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+              })}
+            </span>
+            {inst && (
+              <Button onClick={() => setAdd(true)}>
+                <Plus size={16} />
+                Add surplus
+              </Button>
+            )}
+          </>
+        }
+      />
+      {factory ? (
+        <>
+          <FactoryFlow data={d} />
+          <ProcessingCharts />
+        </>
+      ) : (
+        <Kpis />
+      )}
+      {admin && <NetworkCharts data={d} />}
+      <div className="fw-overview-context">
+        <p>
+          <strong>{d.analytics.active} active journeys</strong> ·{" "}
+          {d.analytics.completed} confirmed handovers
+          {admin &&
+            ` · ${d.organizations.filter((o: DataRow) => o.active && ["INSTITUTION", "RECIPIENT", "ADMIN"].includes(o.type)).length} active organizations`}
+        </p>
+        <Button
+          kind="text"
+          onClick={() => nav(inst || admin ? "/redistribution" : "/requests")}
+        >
+          Continue a food journey <ArrowRight size={15} />
+        </Button>
+      </div>
+      {inst && !factory && (
+        <div className="insight-banner">
+          <span className="insight-icon">
+            <ChartNoAxesCombined size={27} />
+          </span>
+          <div>
+            <span className="eyebrow">PLAN AHEAD, WASTE LESS</span>
+            <h2>Tomorrow starts with a smarter forecast.</h2>
+            <p>
+              {number(d.posCount)} POS records available. Add event context to
+              create a practical preparation plan.
+            </p>
+          </div>
+          <Button kind="light" onClick={() => nav("/forecast")}>
+            View forecast <ArrowUpRight size={17} />
+          </Button>
+        </div>
+      )}
+      <div className="dashboard-grid lower">
+        <Panel
+          title={inst ? "Needs your attention" : "Recent food journeys"}
+          sub={
+            inst
+              ? "Small actions. Meaningful difference."
+              : "Follow every offer through to a confirmed receipt."
+          }
+        >
+          {inst ? (
+            <div className="attention-list">
+              {alerts.slice(0, 3).map((r: DataRow) => (
+                <button key={r.id} onClick={() => nav("/inventory")}>
+                  <span className="attention-icon">
+                    <Package size={19} />
+                  </span>
+                  <div>
+                    <strong>{r.itemName}</strong>
+                    <p>
+                      {r.expiry < day()
+                        ? "Expired stock"
+                        : r.expiry <= day(3)
+                          ? "Approaching expiry"
+                          : "Below minimum stock"}{" "}
+                      · {r.quantity} {r.unit}
+                    </p>
+                  </div>
+                  <ArrowUpRight size={17} />
+                </button>
+              ))}
+              {!alerts.length && (
+                <Empty
+                  title="No inventory alerts"
+                  text="Your recorded stock has no current expiry or quantity alerts."
+                />
+              )}
+              <button className="view-all" onClick={() => nav("/inventory")}>
+                View inventory <ArrowRight size={16} />
+              </button>
+            </div>
+          ) : (
+            <Table
+              search={false}
+              rows={d.surplus.slice(0, 5)}
+              columns={[
+                { key: "foodName", label: "Food" },
+                {
+                  key: "quantity",
+                  label: "Quantity",
+                  render: (r) => `${r.quantity} ${r.unit}`,
+                },
+                {
+                  key: "status",
+                  label: "Status",
+                  render: (r) => <Badge>{r.status}</Badge>,
+                },
+              ]}
+            />
+          )}
+        </Panel>
+        <section className="purpose-card">
+          <span className="purpose-icon">
+            {inst || admin ? <Moon size={25} /> : <HeartHandshake size={25} />}
+          </span>
+          <span className="eyebrow">
+            {inst || admin ? "BEYOND CLOSING TIME" : "READY TO RECEIVE"}
+          </span>
+          <h2>
+            {inst || admin
+              ? "Good food should not wait until morning."
+              : "A little coordination. A meaningful meal."}
+          </h2>
+          <p>
+            {inst || admin
+              ? "The After-Hours Surplus Redistribution Network connects suitable food with verified late-hour recipients."
+              : "Keep your requirements and availability current so suitable food reaches the people you serve."}
+          </p>
+          <Button
+            kind="secondary"
+            onClick={() =>
+              nav(inst || admin ? "/after-hours" : "/requirements")
+            }
+          >
+            {inst || admin ? "Explore the network" : "Update requirements"}
+            <ArrowUpRight size={16} />
+          </Button>
+        </section>
+      </div>
+      {factory && (
+        <div className="note">
+          <Factory size={20} />
+          <p>
+            Processing charts use the existing simulation. Inventory, surplus
+            and recovery actions use your organization’s records.
+          </p>
+        </div>
+      )}
+      {add && <SurplusForm onClose={() => setAdd(false)} />}
+    </>
+  );
+}
+function Forecast() {
+  const { data: d, refresh, message } = useContext(Workspace);
+  const [date, setDate] = useState(day(1));
+  const [meal, setMeal] = useState("Lunch");
+  const [buffer, setBuffer] = useState(d.organization.buffer || 4);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [event, setEvent] = useState(false);
+  const [result, setResult] = useState<DataRow | null>(d.forecasts[0] || null);
+  const [override, setOverride] = useState(false);
+  async function run(extra: DataRow = {}) {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await post("/forecast", {
+        date,
+        mealType: meal,
+        buffer,
+        ...extra,
+      });
+      setResult(r);
+      await refresh();
+      message("Forecast generated from your historical records.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <PageHead
+        title="Prepare with confidence."
+        sub="Item-wise demand, informed by history and the context you know."
+        actions={
+          <Button kind="secondary" onClick={() => setEvent(true)}>
+            <Plus size={17} /> Add event
+          </Button>
+        }
+      />
+      <div className="forecast-controls panel">
+        <label>
+          Forecast date
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </label>
+        <label>
+          Meal period
+          <Choice
+            value={meal}
+            onChange={setMeal}
+            options={["Breakfast", "Lunch", "Dinner"]}
+          />
+        </label>
+        <label>
+          Preparation buffer (%)
+          <input
+            type="number"
+            min="0"
+            max="15"
+            value={buffer}
+            onChange={(e) => setBuffer(Number(e.target.value))}
+          />
+        </label>
+        <Button disabled={busy} onClick={() => void run()}>
+          {busy ? (
+            <Loader2 className="spin" size={17} />
+          ) : (
+            <ChartNoAxesCombined size={17} />
+          )}{" "}
+          {busy ? "Generating forecast…" : "Generate forecast"}
+        </Button>
+      </div>
+      {error && (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      )}
+      {result ? (
+        <>
+          <div className="forecast-summary">
+            <div>
+              <span>Predicted demand</span>
+              <strong>
+                {number(result.totalPredicted)} <small>servings</small>
+              </strong>
+            </div>
+            <div>
+              <span>Recommended preparation</span>
+              <strong>
+                {number(result.totalRecommended)} <small>servings</small>
+              </strong>
+            </div>
+            <div>
+              <span>Event context</span>
+              <strong>
+                +{number(result.eventAttendance)} <small>guests</small>
+              </strong>
+            </div>
+            <div>
+              <Badge>Prototype evaluation</Badge>
+              <p>
+                {result.date} · {result.mealType}
+                <br />
+                {result.modelVersion}
+              </p>
+            </div>
+          </div>
+          <ForecastChart items={result.items} />
+          <Panel
+            title="Your item-wise preparation plan"
+            sub="Predictions are estimates. Review event assumptions before preparing."
+            action={
+              <Button kind="text" onClick={() => setOverride(true)}>
+                Manual override <Settings size={15} />
+              </Button>
+            }
+          >
+            <Table
+              rows={result.items}
+              columns={[
+                {
+                  key: "itemName",
+                  label: "Menu item",
+                  render: (r) => <strong>{r.itemName}</strong>,
+                },
+                { key: "historicalAverage", label: "Recent average" },
+                { key: "basePrediction", label: "Base forecast" },
+                {
+                  key: "eventAllocation",
+                  label: "Event allocation",
+                  render: (r) => `+${r.eventAllocation}`,
+                },
+                { key: "predictedQuantity", label: "Predicted" },
+                {
+                  key: "recommendedQuantity",
+                  label: "Prepare",
+                  render: (r) => (
+                    <strong className="green-text">
+                      {r.recommendedQuantity} servings
+                    </strong>
+                  ),
+                },
+                { key: "manualOverride", label: "Override" },
+              ]}
+            />
+          </Panel>
+          <div className="two-columns">
+            <Panel
+              title="Why this recommendation?"
+              sub="Useful context, without promises."
+            >
+              <div className="padded">
+                <p>{result.items[0]?.explanation}</p>
+                <div className="note">
+                  <Info size={18} />
+                  <span>
+                    Confirmed event attendance is allocated across items using
+                    their historical demand share. It is a planning adjustment,
+                    not a learned prediction of unexpected visitors.
+                  </span>
+                </div>
+                <p className="muted">
+                  {result.events?.length
+                    ? result.events.join(" · ")
+                    : "No confirmed events for this date and meal."}
+                </p>
+              </div>
+            </Panel>
+            <Panel
+              title="Model evaluation"
+              sub="Chronological holdout · synthetic prototype history"
+            >
+              <Table
+                search={false}
+                rows={result.evaluation}
+                columns={[
+                  { key: "itemName", label: "Item" },
+                  { key: "modelMae", label: "Model MAE" },
+                  { key: "baselineMae", label: "Baseline MAE" },
+                ]}
+              />
+              <p className="panel-note">
+                MAE = average absolute error in servings. The lower-error model
+                is selected per item; this is not production accuracy.
+              </p>
+            </Panel>
+          </div>
+        </>
+      ) : (
+        <Panel title="Your next preparation plan">
+          <Empty
+            title="Turn history into a plan"
+            text="Generate a forecast using your institution’s POS history and confirmed bookings."
+          />
+        </Panel>
+      )}
+      <Panel
+        title="Event & booking context"
+        sub="Unexpected visits need human context."
+      >
+        <Table
+          rows={d.events}
+          columns={[
+            { key: "title", label: "Event" },
+            { key: "date", label: "Date" },
+            { key: "mealType", label: "Meal" },
+            { key: "attendees", label: "Expected guests" },
+            { key: "status", label: "Status" },
+          ]}
+        />
+      </Panel>
+      {event && <EventForm onClose={() => setEvent(false)} />}{" "}
+      {override && (
+        <FormModal
+          title="Manual preparation override"
+          onClose={() => setOverride(false)}
+          fields={[
+            {
+              key: "override",
+              label: "Total servings to prepare",
+              type: "number",
+              value: result?.totalRecommended,
+            },
+            { key: "reason", label: "Reason for override", type: "textarea" },
+          ]}
+          onSave={async (v) => {
+            await run(v);
+          }}
+        />
+      )}
+    </>
+  );
+}
+function EventForm({ onClose }: { onClose: () => void }) {
+  const { refresh } = useContext(Workspace);
+  return (
+    <FormModal
+      title="Add event or booking"
+      onClose={onClose}
+      fields={[
+        { key: "title", label: "Event title" },
+        { key: "date", label: "Date", type: "date", value: day(1) },
+        {
+          key: "mealType",
+          label: "Meal period",
+          options: ["Lunch", "Breakfast", "Dinner"],
+        },
+        {
+          key: "attendees",
+          label: "Expected attendees",
+          type: "number",
+          value: 80,
+          min: 1,
+        },
+        {
+          key: "status",
+          label: "Booking status",
+          options: ["Confirmed", "Tentative"],
+        },
+        { key: "notes", label: "Notes", type: "textarea", required: false },
+      ]}
+      onSave={async (v) => {
+        await post("/events", v);
+        await refresh();
+      }}
+    />
+  );
+}
+function PosPage() {
+  const { data: d, refresh, message } = useContext(Workspace);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<DataRow | null>(null);
+  const [summary, setSummary] = useState<DataRow | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function send(path: string, f: File) {
+    const form = new FormData();
+    form.append("file", f);
+    return api(path, { method: "POST", body: form });
+  }
+  return (
+    <>
+      <PageHead
+        title="Better data. Better decisions."
+        sub={`${number(d.posCount)} POS records · Synthetic daily item aggregates, not customer footfall.`}
+        actions={
+          <Button
+            kind="secondary"
+            onClick={() =>
+              download("/pos/sample", "foodwise-synthetic-pos.csv").catch((e) =>
+                message(e.message),
+              )
+            }
+          >
+            <Download size={16} /> Download sample
+          </Button>
+        }
+      />
+      <div className="upload-card">
+        <div className="upload-icon">
+          <Upload size={27} />
+        </div>
+        <div>
+          <h2>Bring your POS history into FoodWise</h2>
+          <p>CSV · maximum 5 MB · up to 10,000 rows per import</p>
+          <small>
+            Required: transactionId, date, itemName, quantitySold, mealType
+          </small>
+        </div>
+        <label className="button secondary file-button">
+          {busy ? "Reading…" : "Choose CSV"}
+          <input
+            type="file"
+            accept=".csv"
+            disabled={busy}
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              setBusy(true);
+              setError("");
+              setSummary(null);
+              try {
+                setFile(f);
+                setPreview(await send("/pos/preview", f));
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setBusy(false);
+                e.target.value = "";
+              }
+            }}
+          />
+        </label>
+      </div>
+      {error && <div className="error">{error}</div>}
+      {summary && (
+        <div className="note success">
+          <Check size={20} />
+          <div>
+            <strong>Import complete</strong>
+            <p>
+              {summary.imported} imported · {summary.duplicates} duplicates
+              skipped · {summary.errors.length} invalid rows
+            </p>
+          </div>
+        </div>
+      )}
+      {preview && (
+        <Panel
+          title={`Preview · ${file?.name}`}
+          sub={`${preview.total} rows · ${preview.errors.length} invalid rows`}
+          action={
+            <Button
+              disabled={busy}
+              onClick={async () => {
+                if (!file) return;
+                setBusy(true);
+                try {
+                  setSummary(await send("/pos/import", file));
+                  setPreview(null);
+                  await refresh();
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Import valid rows
+            </Button>
+          }
+        >
+          <Table
+            rows={preview.preview}
+            columns={[
+              { key: "date", label: "Date" },
+              { key: "itemName", label: "Item" },
+              { key: "quantitySold", label: "Sold" },
+              { key: "mealType", label: "Meal" },
+            ]}
+          />
+          {preview.errors.length > 0 && (
+            <p className="error">
+              {preview.errors
+                .slice(0, 5)
+                .map((r: DataRow) => `Row ${r.row}: ${r.message}`)
+                .join(" · ")}
+            </p>
+          )}
+        </Panel>
+      )}
+      <Panel
+        title="Recent POS records"
+        sub="Latest 50 records. Historical data remains available to the forecast service."
+      >
+        <Table
+          rows={d.pos}
+          columns={[
+            { key: "transactionId", label: "Transaction reference" },
+            { key: "date", label: "Date" },
+            { key: "itemName", label: "Menu item" },
+            { key: "mealType", label: "Meal" },
+            { key: "quantitySold", label: "Quantity sold" },
+            {
+              key: "unitPrice",
+              label: "Unit price",
+              render: (r) => "₹" + r.unitPrice,
+            },
+          ]}
+        />
+      </Panel>
+      <Panel title="Import history">
+        <Table
+          rows={d.imports}
+          columns={[
+            { key: "filename", label: "File" },
+            {
+              key: "createdAt",
+              label: "Imported",
+              render: (r) => time(r.createdAt),
+            },
+            { key: "imported", label: "Imported" },
+            { key: "duplicates", label: "Duplicates" },
+            { key: "errors", label: "Errors", render: (r) => r.errors.length },
+          ]}
+        />
+      </Panel>
+    </>
+  );
+}
+function Production() {
+  const { data: d, refresh } = useContext(Workspace);
+  const [add, setAdd] = useState(false);
+  return (
+    <>
+      <PageHead
+        title="From plan to plate."
+        sub="Record preparation and consumption separately from sales."
+        actions={
+          <Button onClick={() => setAdd(true)}>
+            <Plus size={17} /> Record production
+          </Button>
+        }
+      />
+      <Panel title="Production ledger" sub="Servings · latest 100 records">
+        <Table
+          rows={[...d.production].reverse()}
+          columns={[
+            { key: "date", label: "Date" },
+            { key: "itemName", label: "Menu item" },
+            { key: "prepared", label: "Prepared" },
+            { key: "consumed", label: "Consumed" },
+            {
+              key: "surplus",
+              label: "Surplus",
+              render: (r) => (
+                <Badge
+                  tone={
+                    Number(r.surplus) / Number(r.prepared) > 0.15
+                      ? "amber"
+                      : "neutral"
+                  }
+                >
+                  {r.surplus} servings
+                </Badge>
+              ),
+            },
+            {
+              key: "rate",
+              label: "Surplus rate",
+              render: (r) =>
+                Number(r.prepared)
+                  ? ((Number(r.surplus) / Number(r.prepared)) * 100).toFixed(
+                      1,
+                    ) + "%"
+                  : "—",
+            },
+          ]}
+        />
+      </Panel>
+      {add && (
+        <FormModal
+          title="Record kitchen production"
+          onClose={() => setAdd(false)}
+          fields={[
+            {
+              key: "date",
+              label: "Production date",
+              type: "date",
+              value: day(),
+            },
+            { key: "itemName", label: "Menu item", value: "Veg Thali" },
+            {
+              key: "prepared",
+              label: "Actual prepared (servings)",
+              type: "number",
+            },
+            {
+              key: "consumed",
+              label: "Actual consumed (servings)",
+              type: "number",
+            },
+            {
+              key: "baseline",
+              label: "Prior preparation baseline (optional)",
+              type: "number",
+              required: false,
+              help: "Used only for estimated prevention comparisons.",
+            },
+            {
+              key: "overrideReason",
+              label: "Planning / override notes",
+              type: "textarea",
+              required: false,
+            },
+          ]}
+          onSave={async (v) => {
+            await post("/production", v);
+            await refresh();
+          }}
+        />
+      )}
+    </>
+  );
+}
+function Inventory() {
+  const { data: d, refresh } = useContext(Workspace);
+  const [edit, setEdit] = useState<DataRow | null>(null);
+  const [consume, setConsume] = useState<DataRow | null>(null);
+  const [filter, setFilter] = useState("All stock");
+  const status = (r: DataRow) =>
+    r.expiry < day()
+      ? "Expired"
+      : Number(r.quantity) === 0
+        ? "Unavailable"
+        : r.expiry <= day(3)
+          ? "Near expiry"
+          : Number(r.quantity) < Number(r.minimum)
+            ? "Low stock"
+            : "Healthy";
+  const fields: Field[] = [
+    { key: "itemName", label: "Ingredient" },
+    { key: "quantity", label: "Quantity", type: "number" },
+    {
+      key: "unit",
+      label: "Unit",
+      options: ["kg", "grams", "liters", "packets"],
+    },
+    { key: "minimum", label: "Minimum stock", type: "number" },
+    { key: "expiry", label: "Expiry / best-before", type: "date" },
+    {
+      key: "storage",
+      label: "Storage location",
+      options: ["Dry store", "Cold storage", "Produce room"],
+    },
+    { key: "batch", label: "Batch reference" },
+    {
+      key: "category",
+      label: "Category",
+      options: ["Ingredients", "Produce", "Dairy", "Packaged"],
+    },
+  ];
+  return (
+    <>
+      <PageHead
+        title="Keep your kitchen in balance."
+        sub="Know what’s available, what’s running low, and what to use first."
+        actions={
+          <Button onClick={() => setEdit({})}>
+            <Plus size={17} /> Add stock
+          </Button>
+        }
+      />
+      <div className="mini-stats">
+        {["Healthy", "Low stock", "Near expiry", "Expired"].map((s) => (
+          <div key={s}>
+            <Badge>{s}</Badge>
+            <strong>
+              {d.inventory.filter((r: DataRow) => status(r) === s).length}
+            </strong>
+          </div>
+        ))}
+      </div>
+      <Panel
+        title="Inventory"
+        sub="Use earliest-expiring stock first, subject to handling review."
+        action={
+          <Choice
+            value={filter}
+            onChange={setFilter}
+            options={[
+              "All stock",
+              "Healthy",
+              "Low stock",
+              "Near expiry",
+              "Expired",
+              "Unavailable",
+            ]}
+          />
+        }
+      >
+        <Table
+          rows={d.inventory.filter(
+            (r: DataRow) => filter === "All stock" || status(r) === filter,
+          )}
+          columns={[
+            {
+              key: "itemName",
+              label: "Ingredient",
+              render: (r) => <strong>{r.itemName}</strong>,
+            },
+            {
+              key: "quantity",
+              label: "In stock",
+              render: (r) => `${r.quantity} ${r.unit}`,
+            },
+            { key: "expiry", label: "Expiry" },
+            { key: "storage", label: "Location" },
+            {
+              key: "status",
+              label: "Status",
+              render: (r) => <Badge>{status(r)}</Badge>,
+            },
+            {
+              key: "actions",
+              label: "Actions",
+              render: (r) => (
+                <div className="row-actions">
+                  <button onClick={() => setEdit(r)}>Edit</button>
+                  <button onClick={() => setConsume(r)}>Use stock</button>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </Panel>
+      {edit && (
+        <FormModal
+          title={edit.id ? "Edit stock" : "Add inventory item"}
+          onClose={() => setEdit(null)}
+          fields={fields.map((f) => ({ ...f, value: edit[f.key] ?? f.value }))}
+          onSave={async (v) => {
+            if (edit.id) await patch("/inventory/" + edit.id, v);
+            else await post("/inventory", v);
+            await refresh();
+          }}
+        />
+      )}
+      {consume && (
+        <FormModal
+          title={"Use " + consume.itemName}
+          onClose={() => setConsume(null)}
+          fields={[
+            {
+              key: "quantity",
+              label: `Quantity to use (${consume.unit})`,
+              type: "number",
+              min: 0.01,
+              max: consume.quantity,
+            },
+          ]}
+          onSave={async (v) => {
+            await post("/inventory/" + consume.id + "/consume", v);
+            await refresh();
+          }}
+        />
+      )}
+    </>
+  );
+}
+function SurplusForm({ onClose }: { onClose: () => void }) {
+  const { refresh, message } = useContext(Workspace);
+  return (
+    <FormModal
+      title="Add surplus food"
+      onClose={onClose}
+      fields={[
+        { key: "foodName", label: "Food name", value: "Veg Thali" },
+        {
+          key: "category",
+          label: "Category",
+          options: ["Cooked meals", "Produce", "Packaged food"],
+        },
+        {
+          key: "dietaryType",
+          label: "Dietary type",
+          options: ["Vegetarian", "Non-vegetarian", "Vegan"],
+        },
+        {
+          key: "quantity",
+          label: "Quantity",
+          type: "number",
+          value: 40,
+          min: 0.01,
+        },
+        {
+          key: "unit",
+          label: "Unit",
+          options: ["servings", "kg", "grams", "liters", "packets"],
+        },
+        {
+          key: "servings",
+          label: "Equivalent servings (for matching)",
+          type: "number",
+          value: 40,
+          min: 1,
+        },
+        {
+          key: "preparedAt",
+          label: "Prepared at",
+          type: "datetime-local",
+          value: localDate(-30),
+        },
+        {
+          key: "detectedAt",
+          label: "Surplus detected",
+          type: "datetime-local",
+          value: localDate(),
+        },
+        {
+          key: "availableUntil",
+          label: "Available until",
+          type: "datetime-local",
+          value: localDate(180),
+        },
+        {
+          key: "storageMethod",
+          label: "Storage method",
+          options: [
+            "Hot held",
+            "Refrigerated",
+            "Shelf stable",
+            "Room temperature",
+          ],
+        },
+        {
+          key: "temperature",
+          label: "Recorded temperature (°C)",
+          type: "number",
+          value: 65,
+          min: -40,
+          max: 150,
+        },
+        {
+          key: "packagingStatus",
+          label: "Packaging",
+          options: ["Sealed", "Unsealed"],
+        },
+        {
+          key: "notes",
+          label: "Handling notes",
+          type: "textarea",
+          required: false,
+        },
+        {
+          key: "declaration",
+          label: "Institution confirms handling records were checked",
+          type: "checkbox",
+        },
+        {
+          key: "organic",
+          label: "Organic material suitable for recovery assessment",
+          type: "checkbox",
+          value: true,
+        },
+        {
+          key: "contaminated",
+          label: "Known contamination concern",
+          type: "checkbox",
+        },
+      ]}
+      onSave={async (v) => {
+        await post("/surplus", v);
+        await refresh();
+        message("Surplus recorded. Open its details to assess and match.");
+      }}
+    />
+  );
+}
+function SurplusPage({ mode }: { mode: string }) {
+  const { data: d, refresh, message } = useContext(Workspace);
+  const { user } = useContext(Auth);
+  const [add, setAdd] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [filter, setFilter] = useState("All statuses");
+  const [tab, setTab] = useState("All");
+  const titles: Record<string, [string, string]> = {
+    surplus: [
+      "Make surplus an opportunity.",
+      "Record, assess and find a responsible next destination.",
+    ],
+    redistribution: [
+      "Every journey, connected.",
+      "Trace food from its source to a confirmed handover.",
+    ],
+    "after-hours": [
+      "After-Hours Surplus Redistribution Network",
+      "When regular recipients are unavailable, explore verified late-hour options.",
+    ],
+    offers: [
+      "Good food is waiting.",
+      "Review each offer and choose the pickup option that works for you.",
+    ],
+    requests: [
+      "Your active requests.",
+      "Track accepted offers and confirm what arrives.",
+    ],
+    history: [
+      "A record of shared impact.",
+      "Completed handovers and past food journeys.",
+    ],
+  };
+  const [title, sub] = titles[mode];
+  let rows = d.surplus as DataRow[];
+  if (mode === "after-hours") rows = rows.filter((r) => r.afterHours);
+  if (mode === "offers") rows = rows.filter((r) => r.status === "offered");
+  if (mode === "requests")
+    rows = rows.filter(
+      (r) =>
+        !["completed", "cancelled", "expired", "rejected"].includes(r.status),
+    );
+  if (mode === "history")
+    rows = rows.filter((r) =>
+      ["completed", "cancelled", "expired", "rejected"].includes(r.status),
+    );
+  if (mode === "surplus" && tab !== "All") {
+    const groups: Record<string, string[]> = {
+      Active: [
+        "available",
+        "offered",
+        "delivery requested",
+        "assigned",
+        "arrived",
+        "picked up",
+        "in transit",
+        "delivered",
+        "self pickup",
+      ],
+      Matching: ["available", "offered", "rejected"],
+      Redistributed: ["completed"],
+      Recovery: ["recovery", "disposed"],
+      Expired: ["expired"],
+    };
+    rows = rows.filter((r) => groups[tab].includes(r.status));
+  }
+  const active = d.surplus.find((r: DataRow) => r.id === selected);
+  return (
+    <>
+      <PageHead
+        title={title}
+        sub={sub}
+        eyebrow={
+          mode === "after-hours"
+            ? "RESPONSIBLE REDISTRIBUTION"
+            : "FOOD JOURNEYS"
+        }
+        actions={
+          user!.role === "INSTITUTION" ? (
+            <Button onClick={() => setAdd(true)}>
+              <Plus size={17} /> Add surplus
+            </Button>
+          ) : undefined
+        }
+      />
+      {mode === "after-hours" && (
+        <div className="note after-hours-note">
+          <Moon size={23} />
+          <div>
+            <strong>Availability first. Safety always.</strong>
+            <p>
+              Regular matching runs first. If eligible recipients are
+              unavailable, have declined, or have not responded for 15 minutes,
+              FoodWise checks the after-hours network using the same handling
+              and travel checks.
+            </p>
+          </div>
+        </div>
+      )}
+      {mode === "surplus" && (
+        <div
+          className="fw-status-tabs"
+          role="group"
+          aria-label="Food journey category"
+        >
+          {[
+            "All",
+            "Active",
+            "Matching",
+            "Redistributed",
+            "Recovery",
+            "Expired",
+          ].map((t) => (
+            <button
+              key={t}
+              aria-pressed={tab === t}
+              className={tab === t ? "active" : ""}
+              onClick={() => setTab(t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+      <Panel
+        title={mode === "offers" ? "Incoming offers" : "Food journeys"}
+        sub="Open a record to see its handling context, matching and timeline."
+        action={
+          <Choice
+            value={filter}
+            onChange={setFilter}
+            options={[
+              "All statuses",
+              "available",
+              "offered",
+              "delivery requested",
+              "assigned",
+              "in transit",
+              "completed",
+              "expired",
+              "recovery",
+            ]}
+          />
+        }
+      >
+        <Table
+          rows={rows.filter(
+            (r) => filter === "All statuses" || r.status === filter,
+          )}
+          columns={[
+            {
+              key: "foodName",
+              label: "Food",
+              render: (r) => (
+                <div className="food-cell">
+                  <span>
+                    <Utensils size={17} />
+                  </span>
+                  <div>
+                    <strong>{r.foodName}</strong>
+                    <small>
+                      {r.dietaryType} · {r.category}
+                    </small>
+                  </div>
+                </div>
+              ),
+            },
+            {
+              key: "quantity",
+              label: "Quantity",
+              render: (r) => `${r.quantity} ${r.unit}`,
+            },
+            {
+              key: "availableUntil",
+              label: "Available until",
+              render: (r) => time(r.availableUntil),
+            },
+            {
+              key: "status",
+              label: "Status",
+              render: (r) => <Badge>{r.status}</Badge>,
+            },
+            {
+              key: "network",
+              label: "Network",
+              render: (r) =>
+                r.afterHours ? (
+                  <Badge tone="blue">After hours</Badge>
+                ) : (
+                  "Regular"
+                ),
+            },
+            {
+              key: "action",
+              label: "Details",
+              render: (r) => (
+                <button className="text-link" onClick={() => setSelected(r.id)}>
+                  Open journey <ArrowUpRight size={15} />
+                </button>
+              ),
+            },
+          ]}
+        />
+      </Panel>
+      {user!.role === "INSTITUTION" && d.mode === "Demo data" && (
+        <div className="demo-scenarios">
+          <span>Prepared demo scenarios</span>
+          <Button
+            kind="secondary"
+            onClick={async () => {
+              try {
+                const r = await post("/demo/scenario", {
+                  scenario: "after-hours",
+                });
+                await refresh();
+                setSelected(r.id);
+                message(
+                  "After-hours scenario created with simulated regular-recipient declines.",
+                );
+              } catch (e) {
+                message((e as Error).message);
+              }
+            }}
+          >
+            <Moon size={16} /> After-hours case
+          </Button>
+          <Button
+            kind="secondary"
+            onClick={async () => {
+              try {
+                const r = await post("/demo/scenario", {
+                  scenario: "recovery",
+                });
+                await refresh();
+                setSelected(r.id);
+              } catch (e) {
+                message((e as Error).message);
+              }
+            }}
+          >
+            <Recycle size={16} /> Recovery case
+          </Button>
+        </div>
+      )}
+      {add && <SurplusForm onClose={() => setAdd(false)} />}{" "}
+      {active && <Journey record={active} onClose={() => setSelected(null)} />}
+    </>
+  );
+}
+function Journey({
+  record: x,
+  onClose,
+}: {
+  record: DataRow;
+  onClose: () => void;
+}) {
+  const { data: d, refresh, message } = useContext(Workspace);
+  const { user } = useContext(Auth);
+  const [matching, setMatching] = useState<DataRow | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [actionForm, setActionForm] = useState<{
+    action: string;
+    title: string;
+    fields: Field[];
+  } | null>(null);
+  const [photo, setPhoto] = useState("");
+  const [cv, setCv] = useState<DataRow | null>(x.cv || null);
+  const org = (id: string) =>
+    d.organizations.find((o: DataRow) => o.id === id)?.name || "Not assigned";
+  useEffect(
+    () => () => {
+      if (photo) URL.revokeObjectURL(photo);
+    },
+    [photo],
+  );
+  async function action(action: string, payload: DataRow = {}) {
+    setBusy(true);
+    setError("");
+    try {
+      await post(`/surplus/${x.id}/action`, { action, payload });
+      await refresh();
+      message("Journey updated.");
+    } catch (e) {
+      setError((e as Error).message);
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  }
+  const doAction = (s: string) => void action(s).catch(() => {});
+  const form = (action: string, title: string, fields: Field[]) =>
+    setActionForm({ action, title, fields });
+  return (
+    <>
+      <Modal
+        open
+        onClose={onClose}
+        title={x.foodName}
+        description={`${x.quantity} ${x.unit} · ${org(x.organizationId)}`}
+      >
+        <div className="journey-body">
+          <div className="journey-status">
+            <Badge>{x.status}</Badge>
+            <Badge tone={x.afterHours ? "blue" : "neutral"}>
+              {x.afterHours ? "After-hours network" : "Regular network"}
+            </Badge>
+            <span>Available until {time(x.availableUntil)}</span>
+          </div>
+          <div className="detail-grid">
+            {[
+              ["Prepared", time(x.preparedAt)],
+              ["Storage", x.storageMethod],
+              [
+                "Temperature",
+                x.temperature === null ? "Not recorded" : x.temperature + " °C",
+              ],
+              ["Packaging", x.packagingStatus],
+              ["Recipient", org(x.recipientId)],
+              [
+                "Delivery",
+                x.pickupMode === "delivery"
+                  ? "Institution managed · simulated"
+                  : "Self pickup",
+              ],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <span>{k}</span>
+                <strong>{v}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="assessment-box">
+            <ShieldCheck size={21} />
+            <div>
+              <strong>Redistribution decision support</strong>
+              <p>
+                <Badge>{x.assessment}</Badge>
+              </p>
+              {x.assessmentReasons.map((r: string) => (
+                <p key={r}>{r}</p>
+              ))}
+              <small>
+                Final handling must follow applicable food-safety procedures. A
+                photograph cannot establish safety.
+              </small>
+            </div>
+          </div>
+          {(x.pickupCode || x.deliveryCode) && (
+            <div className="code-box">
+              <div>
+                <strong>
+                  {x.pickupCode
+                    ? "Pickup verification"
+                    : "Delivery verification"}
+                </strong>
+                <p>Share this code at the physical handover.</p>
+              </div>
+              <code>{x.pickupCode || x.deliveryCode}</code>
+            </div>
+          )}
+          {x.reviewRequired && (
+            <div className="error">
+              This delivery exceeded the declared availability window. Handling
+              review is required.
+            </div>
+          )}
+          {user!.role === "INSTITUTION" && (
+            <>
+              <section className="vision-section">
+                <div>
+                  <h3>Visible quality assessment</h3>
+                  <p>Real model inference · general object classification</p>
+                </div>
+                <label className="button secondary file-button">
+                  <Upload size={16} />
+                  {busy ? "Analyzing…" : "Analyze image"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    disabled={busy}
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      setBusy(true);
+                      setError("");
+                      setPhoto(URL.createObjectURL(f));
+                      const body = new FormData();
+                      body.append("file", f);
+                      try {
+                        const result = await api(`/surplus/${x.id}/vision`, {
+                          method: "POST",
+                          body,
+                        });
+                        setCv(result);
+                        await refresh();
+                      } catch (e) {
+                        setError((e as Error).message);
+                      } finally {
+                        setBusy(false);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                </label>
+              </section>
+              {(photo || cv) && (
+                <div className="vision-result">
+                  {photo && (
+                    <img
+                      src={photo}
+                      alt="Uploaded food for visual assessment"
+                    />
+                  )}
+                  {cv && (
+                    <div>
+                      <Badge tone="blue">{cv.modelVersion}</Badge>
+                      <h3>{cv.detectedCategory}</h3>
+                      <p>
+                        Top-label confidence: {Math.round(cv.confidence * 100)}%
+                        · {cv.visibleAssessment}
+                      </p>
+                      <small>{cv.warning}</small>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="action-row">
+                {["available", "rejected", "offered"].includes(x.status) && (
+                  <Button
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      setError("");
+                      try {
+                        setMatching(await api(`/surplus/${x.id}/matches`));
+                      } catch (e) {
+                        setError((e as Error).message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    <HeartHandshake size={16} /> Find recipient matches
+                  </Button>
+                )}
+                {["available", "rejected", "cancelled", "expired"].includes(
+                  x.status,
+                ) && (
+                  <>
+                    <Button
+                      kind="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        form("recover", "Route to organic recovery", [
+                          {
+                            key: "reason",
+                            label: "Reason redistribution was not selected",
+                            type: "textarea",
+                          },
+                        ])
+                      }
+                    >
+                      <Recycle size={16} /> Recovery
+                    </Button>
+                    <Button
+                      kind="text"
+                      onClick={() =>
+                        form("dispose", "Record final disposal", [
+                          {
+                            key: "reason",
+                            label: "Reason recovery is not appropriate",
+                            type: "textarea",
+                          },
+                        ])
+                      }
+                    >
+                      Final disposal
+                    </Button>
+                  </>
+                )}
+              </div>
+              {x.cv && !x.cv.reviewConfirmed && (
+                <div className="note">
+                  <div>
+                    <p>
+                      Image inference needs human review. Check handling
+                      conditions and the uploaded photo before requesting
+                      matches.
+                    </p>
+                    <Button
+                      kind="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        form("review", "Record visual and handling review", [
+                          {
+                            key: "confirmed",
+                            label:
+                              "I reviewed the image and handling records; this does not certify safety",
+                            type: "checkbox",
+                          },
+                        ])
+                      }
+                    >
+                      Record review
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {matching && (
+                <div className="match-section">
+                  <h3>
+                    {matching.afterHours
+                      ? "After-Hours Surplus Redistribution Network"
+                      : "Smart recipient matching"}
+                  </h3>
+                  <p>{matching.reason}</p>
+                  {matching.matches.length === 0 ? (
+                    <Empty
+                      title="No eligible recipient"
+                      text="Review the handling context or consider an appropriate recovery route."
+                    />
+                  ) : (
+                    matching.matches.map((m: DataRow) => (
+                      <div className="match-card" key={m.recipientId}>
+                        <div className="match-top">
+                          <div>
+                            <h4>{m.name}</h4>
+                            <p>
+                              {m.distance} km · {m.estimatedTravelTime} min
+                              estimated journey
+                            </p>
+                          </div>
+                          <span className="match-score">
+                            {m.score}
+                            <small>/100</small>
+                          </span>
+                        </div>
+                        <ul>
+                          {m.reasons.map((r: string) => (
+                            <li key={r}>
+                              <Check size={14} />
+                              {r}
+                            </li>
+                          ))}
+                        </ul>
+                        <Button
+                          kind="secondary"
+                          disabled={busy}
+                          onClick={() =>
+                            void action("offer", { recipientId: m.recipientId })
+                              .then(() => setMatching(null))
+                              .catch(() => {})
+                          }
+                        >
+                          Send offer <ArrowRight size={16} />
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                  {matching.excluded.length > 0 && (
+                    <details>
+                      <summary>Why other recipients were excluded</summary>
+                      {matching.excluded.map((r: DataRow) => (
+                        <p key={r.name}>
+                          {r.name}: {r.reason}
+                        </p>
+                      ))}
+                    </details>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+          {user!.role === "RECIPIENT" && x.status === "offered" && (
+            <div className="action-row">
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  void action("accept", { mode: "delivery" }).catch(() => {})
+                }
+              >
+                Accept · Need delivery
+              </Button>
+              <Button
+                kind="secondary"
+                disabled={busy || !d.organization.pickup}
+                onClick={() =>
+                  void action("accept", { mode: "self" }).catch(() => {})
+                }
+              >
+                Accept · Self pickup
+              </Button>
+              <Button
+                kind="text"
+                onClick={() =>
+                  form("reject", "Decline offer", [
+                    {
+                      key: "reason",
+                      label: "Reason",
+                      options: [
+                        "Capacity full",
+                        "Not required",
+                        "Closed",
+                        "Unsuitable category",
+                        "Transport unavailable",
+                        "Other",
+                      ],
+                    },
+                  ])
+                }
+              >
+                Decline
+              </Button>
+            </div>
+          )}
+          {user!.role === "RECIPIENT" &&
+            ["delivered", "self pickup"].includes(x.status) && (
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  form("confirm", "Confirm received food", [
+                    ...(x.status === "self pickup"
+                      ? [{ key: "code", label: "Pickup code from institution" }]
+                      : []),
+                    {
+                      key: "quantity",
+                      label: `Received quantity (${x.unit})`,
+                      type: "number",
+                      value: x.quantity,
+                      min: 0.01,
+                      max: x.quantity,
+                    },
+                    {
+                      key: "note",
+                      label: "Quantity or packaging issue (optional)",
+                      type: "textarea",
+                      required: false,
+                    },
+                    {
+                      key: "reviewConfirmed",
+                      label:
+                        "Handling conditions reviewed, including any late arrival",
+                      type: "checkbox",
+                    },
+                  ])
+                }
+              >
+                Confirm receipt <Check size={16} />
+              </Button>
+            )}
+          {(user!.role === "ADMIN" || user!.role === "INSTITUTION") &&
+            x.pickupMode === "delivery" && (
+              <div className="action-row">
+                {x.status === "delivery requested" && (
+                  <Button disabled={busy} onClick={() => doAction("claim")}>
+                    Arrange delivery (simulated)
+                  </Button>
+                )}
+                {x.status === "assigned" && (
+                  <Button disabled={busy} onClick={() => doAction("arrive")}>
+                    Arrived for pickup
+                  </Button>
+                )}
+                {x.status === "arrived" && (
+                  <Button
+                    onClick={() =>
+                      form("pickup", "Verify pickup", [
+                        { key: "code", label: "Pickup code from institution" },
+                      ])
+                    }
+                  >
+                    Confirm pickup
+                  </Button>
+                )}
+                {x.status === "picked up" && (
+                  <Button disabled={busy} onClick={() => doAction("transit")}>
+                    Start transit
+                  </Button>
+                )}
+                {x.status === "in transit" && (
+                  <Button
+                    onClick={() =>
+                      form("deliver", "Verify delivery", [
+                        { key: "code", label: "Delivery code from recipient" },
+                      ])
+                    }
+                  >
+                    Confirm delivery
+                  </Button>
+                )}
+              </div>
+            )}
+          {x.pickupMode === "delivery" && (
+            <div className="route-card">
+              <Badge tone="blue">
+                Institution-managed delivery · simulated
+              </Badge>
+              <div className="fw-delivery-steps">
+                {[
+                  ["delivery requested", "Required"],
+                  ["assigned", "Arranged"],
+                  ["arrived", "At pickup"],
+                  ["picked up", "Picked up"],
+                  ["in transit", "In transit"],
+                  ["delivered", "Delivered"],
+                  ["completed", "Received"],
+                ].map(([status, label]) => (
+                  <span
+                    key={status}
+                    className={x.status === status ? "current" : ""}
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+              <div>
+                <span className="route-pin" />
+                <p>
+                  <small>PICKUP</small>
+                  <strong>{org(x.organizationId)}</strong>
+                </p>
+              </div>
+              <div>
+                <span className="route-pin end" />
+                <p>
+                  <small>DROP-OFF</small>
+                  <strong>{org(x.recipientId)}</strong>
+                </p>
+              </div>
+              <p>
+                {x.estimatedTravelTime || "—"} minutes estimated · no live GPS
+                or traffic data
+              </p>
+            </div>
+          )}
+          {[
+            "offered",
+            "delivery requested",
+            "assigned",
+            "arrived",
+            "self pickup",
+          ].includes(x.status) && (
+            <Button
+              kind="text danger"
+              disabled={busy}
+              onClick={() =>
+                form("cancel", "Cancel this journey", [
+                  {
+                    key: "reason",
+                    label: "Cancellation reason",
+                    type: "textarea",
+                  },
+                ])
+              }
+            >
+              Cancel journey
+            </Button>
+          )}
+          {error && (
+            <div className="error" role="alert">
+              {error}
+            </div>
+          )}
+          <h3 className="timeline-title">Traceability timeline</h3>
+          <div className="timeline">
+            {x.timeline.map((t: DataRow, i: number) => (
+              <div key={i}>
+                <i />
+                <div>
+                  <strong>{t.action}</strong>
+                  <p>
+                    {t.actor} · {time(t.at)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Modal>
+      {actionForm && (
+        <FormModal
+          title={actionForm.title}
+          fields={actionForm.fields}
+          onClose={() => setActionForm(null)}
+          onSave={async (v) => {
+            await action(actionForm.action, v);
+          }}
+        />
+      )}
+    </>
+  );
+}
+function Recovery() {
+  const { data: d, refresh, message } = useContext(Workspace);
+  return (
+    <>
+      <PageHead
+        title="A responsible next life."
+        sub="Recover suitable organic material. Keep disposal as the final option."
+      />
+      <div className="note">
+        <Recycle size={22} />
+        <p>
+          Recovery destinations are simulated. Contaminated or unsuitable
+          material needs an approved specialist route; not every food item is
+          compostable.
+        </p>
+      </div>
+      <RecoveryChart
+        records={d.recovery}
+        kgPerServing={d.analytics.methodology.kgPerServing}
+      />
+      <Panel title="Recovery & disposal ledger">
+        <Table
+          rows={d.recovery}
+          columns={[
+            { key: "foodName", label: "Material" },
+            {
+              key: "quantity",
+              label: "Quantity",
+              render: (r) => `${r.quantity} ${r.unit}`,
+            },
+            { key: "method", label: "Route" },
+            { key: "reason", label: "Reason" },
+            {
+              key: "status",
+              label: "Status",
+              render: (r) => <Badge>{r.status}</Badge>,
+            },
+            {
+              key: "action",
+              label: "Next step",
+              render: (r) =>
+                ["scheduled", "handed over"].includes(r.status) ? (
+                  <button
+                    className="text-link"
+                    onClick={async () => {
+                      try {
+                        await patch("/recovery/" + r.id, {
+                          status:
+                            r.status === "scheduled"
+                              ? "handed over"
+                              : "completed",
+                        });
+                        await refresh();
+                        message("Recovery record updated.");
+                      } catch (e) {
+                        message((e as Error).message);
+                      }
+                    }}
+                  >
+                    {r.status === "scheduled"
+                      ? "Confirm handover"
+                      : "Complete recovery"}
+                  </button>
+                ) : (
+                  "Recorded"
+                ),
+            },
+          ]}
+        />
+      </Panel>
+    </>
+  );
+}
+function Sensors() {
+  const q = useQuery({
+    queryKey: ["sensors"],
+    queryFn: () => api("/sensors"),
+    refetchInterval: 15000,
+  });
+  return (
+    <>
+      <PageHead
+        title="Know your storage conditions."
+        sub="Simulated IoT readings. Thresholds are demo settings, not universal safety standards."
+        actions={<Badge tone="blue">Simulated IoT Data</Badge>}
+      />
+      {q.isPending ? (
+        <Loading />
+      ) : q.error ? (
+        <div className="error">{q.error.message}</div>
+      ) : (
+        <div className="sensor-grid">
+          {q.data.sensors.map((s: DataRow) => (
+            <Panel
+              key={s.id}
+              title={s.label}
+              sub={`${s.location} · ${s.id}`}
+              action={<Thermometer size={20} />}
+            >
+              <div className="sensor-reading">
+                <strong>
+                  {s.value}
+                  <small>{s.unit}</small>
+                </strong>
+                <Badge>{s.status}</Badge>
+              </div>
+              <div className="sensor-chart">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={s.history}>
+                    <Area
+                      dataKey="value"
+                      type="monotone"
+                      stroke={s.status === "attention" ? "#b57b2c" : "#408665"}
+                      fill={s.status === "attention" ? "#faf1dd" : "#edf5ed"}
+                    />
+                    <Tooltip />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="panel-note">
+                Demo alert above {s.limit} {s.unit} · {time(s.timestamp)}
+              </p>
+            </Panel>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+function Processing() {
+  const rows = processingRows();
+  return (
+    <>
+      <PageHead
+        title="Less loss, at every step."
+        sub="Processing efficiency demonstration · all values in this module are simulated."
+        actions={<Badge tone="blue">Simulated processing data</Badge>}
+      />
+      <ProcessingCharts />
+      <Panel
+        title="Batch efficiency"
+        sub="Illustrative raw-material, output and resource measurements"
+      >
+        <Table
+          rows={rows}
+          columns={[
+            { key: "date", label: "Batch date" },
+            { key: "input", label: "Input (kg)" },
+            { key: "output", label: "Output (kg)" },
+            { key: "loss", label: "Loss (%)" },
+            { key: "energy", label: "Energy (kWh)" },
+            { key: "downtime", label: "Downtime (min)" },
+          ]}
+        />
+      </Panel>
+      <div className="note">
+        <Activity size={21} />
+        <p>
+          Demo processing loss ranges from {rows[0].loss}% to {rows[6].loss}%.
+          These charts explain the prototype workflow; they are not live machine
+          measurements.
+        </p>
+      </div>
+    </>
+  );
+}
+function Analytics() {
+  const { data: d, message } = useContext(Workspace);
+  const a = d.analytics;
+  const flow = Object.entries(
+    d.surplus
+      .filter((x: DataRow) => x.status === "completed")
+      .reduce((acc: Record<string, number>, x: DataRow) => {
+        acc[x.foodName] = (acc[x.foodName] || 0) + 1;
+        return acc;
+      }, {}),
+  )
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => Number(b.count) - Number(a.count))
+    .slice(0, 5);
+  return (
+    <>
+      <PageHead
+        title="See the difference you make."
+        sub="Record-derived outcomes, with estimated conversions kept visible."
+        actions={
+          <Button
+            kind="secondary"
+            onClick={() =>
+              download("/analytics.csv", "foodwise-impact.csv").catch((e) =>
+                message(e.message),
+              )
+            }
+          >
+            <Download size={16} /> Export CSV
+          </Button>
+        }
+      />
+      <Kpis />
+      <Panel
+        title="Food shared most often"
+        sub="Completed handovers by item · latest 200 visible journeys"
+      >
+        <div className="chart">
+          <ResponsiveContainer>
+            <BarChart
+              data={flow}
+              layout="vertical"
+              margin={{ left: 20, right: 25 }}
+            >
+              <CartesianGrid horizontal={false} stroke="#e6eee7" />
+              <XAxis type="number" allowDecimals={false} />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={125}
+                tick={{ fontSize: 11 }}
+              />
+              <Tooltip />
+              <Bar
+                dataKey="count"
+                name="Completed handovers"
+                fill="#39AEB3"
+                radius={[0, 5, 5, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Panel>
+      <Panel title="How these estimates are calculated">
+        <div className="method-grid">
+          <div>
+            <Scale size={22} />
+            <h3>Meal equivalents</h3>
+            <p>
+              Converted mass ÷ {a.methodology.kgPerServing} kg per serving.
+              Liter and packet records need an explicit serving count.
+            </p>
+          </div>
+          <div>
+            <Leaf size={22} />
+            <h3>Environmental impact</h3>
+            <p>
+              Prevented + redistributed kg × {a.methodology.co2PerKg} kg CO₂e.
+              Illustrative factor, not an audited claim.
+            </p>
+          </div>
+          <div>
+            <TrendingUp size={22} />
+            <h3>Estimated cost avoided</h3>
+            <p>
+              Prevented kg × ₹{a.methodology.costPerKg}. Prevention compares
+              preparation against recorded baseline estimates.
+            </p>
+          </div>
+        </div>
+      </Panel>
+    </>
+  );
+}
+function Reports() {
+  const { data: d, refresh } = useContext(Workspace);
+  const { user } = useContext(Auth);
+  const [from, setFrom] = useState(day(-30));
+  const [to, setTo] = useState(day());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [institution, setInstitution] = useState("All institutions");
+  async function generate(f = from, t = to, id = "") {
+    setBusy(true);
+    setError("");
+    try {
+      const selected =
+        id ||
+        d.organizations.find((o: DataRow) => o.name === institution)?.id ||
+        "";
+      await download(
+        `/reports.pdf?from=${f}&to=${t}&institutionId=${selected}`,
+        `FoodWise-${f}-${t}.pdf`,
+      );
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <PageHead
+        title="Impact, made shareable."
+        sub="Generate a sustainability report with the numbers and the assumptions behind them."
+      />
+      <div className="report-builder panel">
+        <div className="report-icon">
+          <FileText size={35} />
+        </div>
+        <div>
+          <h2>Sustainability & operational impact</h2>
+          <p>
+            Record-derived outcomes · estimated metrics · methodology included
+          </p>
+        </div>
+        <div className="forecast-controls">
+          <label>
+            From
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </label>
+          <label>
+            To
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </label>
+          {user!.role === "ADMIN" && (
+            <label>
+              Institution
+              <Choice
+                value={institution}
+                onChange={setInstitution}
+                options={[
+                  "All institutions",
+                  ...d.organizations
+                    .filter((o: DataRow) => o.type === "INSTITUTION")
+                    .map((o: DataRow) => o.name),
+                ]}
+              />
+            </label>
+          )}
+          <Button disabled={busy} onClick={() => void generate()}>
+            {busy ? (
+              <Loader2 className="spin" size={16} />
+            ) : (
+              <Download size={16} />
+            )}{" "}
+            Generate PDF
+          </Button>
+        </div>
+      </div>
+      {error && <div className="error">{error}</div>}
+      <p className="fw-chart-note">
+        Workspace snapshot below includes all records. The selected date range
+        and institution above apply to your generated PDF.
+      </p>
+      <SustainabilityCharts analytics={d.analytics} />
+      <Panel title="Report history">
+        <Table
+          rows={d.reports}
+          columns={[
+            { key: "title", label: "Report" },
+            { key: "from", label: "From" },
+            { key: "to", label: "To" },
+            {
+              key: "createdAt",
+              label: "Generated",
+              render: (r) => time(r.createdAt),
+            },
+            {
+              key: "download",
+              label: "Action",
+              render: (r) => (
+                <button
+                  className="text-link"
+                  onClick={() => void generate(r.from, r.to, r.institutionId)}
+                >
+                  Regenerate PDF <Download size={14} />
+                </button>
+              ),
+            },
+          ]}
+        />
+      </Panel>
+    </>
+  );
+}
+function Organizations({ kind }: { kind: string }) {
+  const { data: d, refresh, message } = useContext(Workspace);
+  const type = kind === "institutions" ? "INSTITUTION" : "RECIPIENT";
+  const rows = d.organizations.filter((o: DataRow) => o.type === type);
+  async function update(id: string, v: DataRow) {
+    try {
+      await patch("/organizations/" + id, v);
+      await refresh();
+      message("Organization updated.");
+    } catch (e) {
+      message((e as Error).message);
+    }
+  }
+  return (
+    <>
+      <PageHead
+        title={
+          kind === "institutions"
+            ? "The kitchens behind the change."
+            : "A network that nourishes."
+        }
+        sub="Review verification, availability and organization status."
+      />
+      <Panel title={roleName[type] + " directory"}>
+        <Table
+          rows={rows}
+          columns={[
+            {
+              key: "name",
+              label: "Organization",
+              render: (r) => (
+                <div>
+                  <strong>{r.name}</strong>
+                  <small className="block">{r.address}</small>
+                </div>
+              ),
+            },
+            {
+              key: "subtype",
+              label: "Type",
+              render: (r) =>
+                r.type === "INSTITUTION" ? (
+                  <Choice
+                    value={
+                      r.subtype === "Factory" ? "Factory" : "Hotel / Restaurant"
+                    }
+                    options={["Hotel / Restaurant", "Factory"]}
+                    onChange={(subtype) => void update(r.id, { subtype })}
+                  />
+                ) : (
+                  r.subtype
+                ),
+            },
+            {
+              key: "verified",
+              label: "Verification",
+              render: (r) => (
+                <Badge>{r.verified ? "Verified" : "Review needed"}</Badge>
+              ),
+            },
+            {
+              key: "available",
+              label: "Availability",
+              render: (r) => (r.available ? "Available" : "Offline"),
+            },
+            {
+              key: "active",
+              label: "Account",
+              render: (r) => <Badge>{r.active ? "Active" : "Inactive"}</Badge>,
+            },
+            {
+              key: "actions",
+              label: "Manage",
+              render: (r) => (
+                <div className="row-actions">
+                  <button
+                    onClick={() => void update(r.id, { verified: !r.verified })}
+                  >
+                    {r.verified ? "Revoke verification" : "Verify"}
+                  </button>
+                  <button
+                    onClick={() => void update(r.id, { active: !r.active })}
+                  >
+                    {r.active ? "Deactivate" : "Activate"}
+                  </button>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </Panel>
+    </>
+  );
+}
+function SettingsPage({ requirements = false }: { requirements?: boolean }) {
+  const { data: d, refresh, message } = useContext(Workspace);
+  const { user } = useContext(Auth);
+  const [edit, setEdit] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const o = d.organization;
+  const fields: Field[] = [
+    { key: "name", label: "Organization name" },
+    { key: "address", label: "Address" },
+    { key: "phone", label: "Contact phone", required: false },
+    { key: "available", label: "Available for operations", type: "checkbox" },
+    ...(user!.role === "INSTITUTION"
+      ? [
+          {
+            key: "buffer",
+            label: "Preparation buffer (%)",
+            type: "number",
+            min: 0,
+            max: 15,
+          },
+        ]
+      : []),
+    ...(user!.role === "RECIPIENT"
+      ? [
+          {
+            key: "capacity",
+            label: "Maximum capacity (servings)",
+            type: "number",
+          },
+          {
+            key: "requirement",
+            label: "Current requirement (servings)",
+            type: "number",
+          },
+          {
+            key: "openHour",
+            label: "Opening hour (UTC, 0–23)",
+            type: "number",
+            max: 23,
+          },
+          {
+            key: "closeHour",
+            label: "Closing hour (UTC, 0–24)",
+            type: "number",
+            max: 24,
+          },
+          { key: "pickup", label: "Self-pickup capability", type: "checkbox" },
+          {
+            key: "refrigeration",
+            label: "Refrigeration capability",
+            type: "checkbox",
+          },
+          {
+            key: "diet",
+            label: "Accepted dietary type",
+            options: ["Vegetarian", "Non-vegetarian", "Vegan"],
+            value: o.dietary[0],
+          },
+          {
+            key: "category",
+            label: "Accepted category",
+            options: [
+              "All categories",
+              "Cooked meals",
+              "Produce",
+              "Packaged food",
+            ],
+            value:
+              o.categories.length === 3 ? "All categories" : o.categories[0],
+          },
+        ]
+      : []),
+    ...[],
+  ];
+  return (
+    <>
+      <PageHead
+        title={
+          requirements
+            ? "Tell us what you can receive."
+            : "Your workspace, your way."
+        }
+        sub="Keep organization details and operational preferences up to date."
+        actions={
+          <Button onClick={() => setEdit(true)}>
+            Edit profile <Settings size={16} />
+          </Button>
+        }
+      />
+      <div className="two-columns">
+        <Panel
+          title={o.name}
+          sub={
+            isFactory(user, d?.organization) ? "Factory" : roleName[user!.role]
+          }
+        >
+          <div className="padded profile-details">
+            <Badge>
+              {o.verified ? "Verified organization" : "Verification pending"}
+            </Badge>
+            <p>{o.address}</p>
+            <div>
+              <span>Availability</span>
+              <strong>{o.available ? "Available" : "Offline"}</strong>
+            </div>
+            {user!.role === "RECIPIENT" && (
+              <>
+                <div>
+                  <span>Current requirement</span>
+                  <strong>{o.requirement} servings</strong>
+                </div>
+                <div>
+                  <span>Capacity</span>
+                  <strong>{o.capacity} servings</strong>
+                </div>
+                <div>
+                  <span>Preferences</span>
+                  <strong>{o.dietary.join(", ")}</strong>
+                </div>
+                <div>
+                  <span>Categories</span>
+                  <strong>{o.categories.join(", ")}</strong>
+                </div>
+                <div>
+                  <span>Operating hours (UTC)</span>
+                  <strong>
+                    {o.openHour}:00 – {o.closeHour}:00
+                  </strong>
+                </div>
+                <div>
+                  <span>Self pickup / refrigeration</span>
+                  <strong>
+                    {o.pickup ? "Yes" : "No"} / {o.refrigeration ? "Yes" : "No"}
+                  </strong>
+                </div>
+              </>
+            )}
+            {user!.role === "INSTITUTION" && (
+              <div>
+                <span>Preparation buffer</span>
+                <strong>{o.buffer}%</strong>
+              </div>
+            )}
+            <Button
+              kind="secondary"
+              onClick={async () => {
+                try {
+                  await patch("/profile", { available: !o.available });
+                  await refresh();
+                  message("Availability updated.");
+                } catch (e) {
+                  message((e as Error).message);
+                }
+              }}
+            >
+              {o.available ? "Set offline" : "Set available"}
+            </Button>
+          </div>
+        </Panel>
+        <Panel
+          title="Working together, thoughtfully"
+          sub="Making Every Meal Count"
+        >
+          <div className="padded about-copy">
+            <p>
+              Keep availability and contact details current. Record handovers
+              accurately so each food journey contributes to a clearer picture
+              of impact.
+            </p>
+            <p className="muted">
+              Simulated readings and estimated impact are labeled where they
+              appear.
+            </p>
+          </div>
+        </Panel>
+      </div>
+      {user!.role === "ADMIN" && (
+        <Panel
+          title="Impact and handling assumptions"
+          action={
+            <Button kind="secondary" onClick={() => setSettings(true)}>
+              Edit assumptions
+            </Button>
+          }
+        >
+          <div className="padded">
+            <p>
+              Mass conversion: {d.settings.kgPerServing} kg/serving · Emissions:{" "}
+              {d.settings.co2PerKg} kg CO₂e/kg · Cost: ₹{d.settings.costPerKg}
+              /kg
+            </p>
+            <p>
+              Minimum remaining window: {d.settings.minimumWindowMinutes} min ·
+              Pickup allowance: {d.settings.pickupDelayMinutes} min
+            </p>
+          </div>
+        </Panel>
+      )}
+      {edit && (
+        <FormModal
+          title="Edit organization profile"
+          onClose={() => setEdit(false)}
+          fields={fields.map((f) => ({ ...f, value: o[f.key] ?? f.value }))}
+          onSave={async (v) => {
+            if (v.diet) {
+              v.dietary = [v.diet];
+              delete v.diet;
+            }
+            if (v.category) {
+              v.categories =
+                v.category === "All categories"
+                  ? ["Cooked meals", "Produce", "Packaged food"]
+                  : [v.category];
+              delete v.category;
+            }
+            await patch("/profile", v);
+            await refresh();
+          }}
+        />
+      )}
+      {settings && (
+        <FormModal
+          title="Prototype assumptions"
+          onClose={() => setSettings(false)}
+          fields={[
+            ["kgPerServing", "Kilograms per serving"],
+            ["co2PerKg", "Estimated kg CO₂e per kg"],
+            ["costPerKg", "Estimated INR per kg"],
+            ["minimumWindowMinutes", "Minimum window (minutes)"],
+            ["pickupDelayMinutes", "Pickup allowance (minutes)"],
+          ].map(([key, label]) => ({
+            key,
+            label,
+            type: "number",
+            value: d.settings[key],
+          }))}
+          onSave={async (v) => {
+            await patch("/settings", v);
+            await refresh();
+          }}
+        />
+      )}
+    </>
+  );
+}
+function Notifications() {
+  const { data: d, refresh, message } = useContext(Workspace);
+  const nav = useNavigate();
+  return (
+    <>
+      <PageHead
+        title="Stay in the loop."
+        sub="Offers, handovers and updates for your organization."
+      />
+      <Panel title="Notification center">
+        {!d.notifications.length ? (
+          <Empty title="You’re all caught up" />
+        ) : (
+          <div className="notifications">
+            {d.notifications.map((n: DataRow) => (
+              <div key={n.id} className={!n.read ? "unread" : ""}>
+                <span className="notification-symbol">
+                  <Bell size={20} />
+                </span>
+                <div>
+                  <strong>{n.title}</strong>
+                  <p>{n.message}</p>
+                  <small>{time(n.createdAt)} · In-app notification</small>
+                </div>
+                <button
+                  className="text-link"
+                  onClick={async () => {
+                    try {
+                      await patch("/notifications/" + n.id, { read: true });
+                      await refresh();
+                      nav(
+                        n.path === "/deliveries" ? "/requests" : n.path || "/",
+                      );
+                    } catch (e) {
+                      message((e as Error).message);
+                    }
+                  }}
+                >
+                  {n.read ? "Open" : "Read & open"}
+                  <ArrowUpRight size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+    </>
+  );
+}
+
+function Audit() {
+  const { data: d } = useContext(Workspace);
+  return (
+    <>
+      <PageHead
+        title="Every action, accounted for."
+        sub="A searchable record of the decisions and handovers across FoodWise."
+      />
+      <Panel title="Audit trail">
+        <Table
+          rows={d.audit}
+          columns={[
+            {
+              key: "createdAt",
+              label: "Time",
+              render: (r) => time(r.createdAt),
+            },
+            { key: "actor", label: "Actor" },
+            { key: "role", label: "Role" },
+            { key: "action", label: "Action" },
+            { key: "entityId", label: "Record reference" },
+          ]}
+        />
+      </Panel>
+    </>
+  );
+}
+function About() {
+  return (
+    <>
+      <PageHead
+        title="A little wiser. A lot less waste."
+        sub="Making Every Meal Count · FoodWise by Team Anvay"
+      />
+      <Panel title="Predict → Prevent → Redistribute → Recover">
+        <div className="padded about-copy">
+          <p>
+            FoodWise supports institutions before, during and after food
+            preparation: demand planning, inventory monitoring, image-supported
+            review, recipient matching, redistribution and impact reporting.
+          </p>
+          <div className="detail-grid">
+            <div>
+              <span>Problem statement</span>
+              <strong>SIH 26234</strong>
+            </div>
+            <div>
+              <span>Organization</span>
+              <strong>Ministry of Food Processing Industries</strong>
+            </div>
+            <div>
+              <span>Theme</span>
+              <strong>Agriculture, FoodTech & Rural Development</strong>
+            </div>
+            <div>
+              <span>Team</span>
+              <strong>Anvay · Connected to Create</strong>
+            </div>
+          </div>
+          <h3>Prototype transparency</h3>
+          <p>
+            Forecasts use synthetic or uploaded institutional POS-style records.
+            Vision runs a real general-purpose image classifier, which cannot
+            determine freshness or food safety. IoT, routes, recovery
+            destinations and processing readings are simulated. Sustainability
+            conversion factors are illustrative estimates.
+          </p>
+          <p>
+            Live POS, Tally, production WhatsApp, external logistics and real
+            IoT integrations are future work. FoodWise provides decision
+            support; final food handling follows organizational and applicable
+            safety procedures.
+          </p>
+        </div>
+      </Panel>
+    </>
+  );
+}
+export default function Root() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </QueryClientProvider>
+  );
+}
